@@ -2,9 +2,10 @@ name: Stock Notifier
 
 on:
   schedule:
-    # Action Run 1: 09:00 WIB (02:00 UTC), Senin-Jumat
-    # Action Run 2: 15:00 WIB (08:00 UTC), Senin-Jumat
-    - cron: '0 2,8 * * 1-5'
+    # 06:00 WIB Senin-Jumat (Setara dengan 23:00 UTC Minggu-Kamis)
+    - cron: '0 23 * * 0-4'
+    # 09:00, 12:00, 15:00, dan 18:00 WIB Senin-Jumat (Setara 02, 05, 08, 11 UTC)
+    - cron: '0 2,5,8,11 * * 1-5'
   workflow_dispatch: # Memungkinkan kita menjalankan ini secara manual jika dibutuhkan
 
 jobs:

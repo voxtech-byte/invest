@@ -8,8 +8,34 @@ import json
 from datetime import datetime, timedelta
 import pytz
 
-# Konfigurasi Default
-STOCKS = ['BBCA.JK', 'GOTO.JK', 'ASII.JK', 'TLKM.JK', 'UNVR.JK']
+# Konfigurasi Default - Portfolio Monitoring
+STOCKS = [
+    # Banking & Finance (4 saham)
+    'BBCA.JK',  # BCA - Banking leader
+    'BMRI.JK',  # Bank Mandiri - Potensi rebound
+    'BRIS.JK',  # Bank Rakyat - Growth + dividen
+    'BBNI.JK',  # Bank Negara - Undervalued BUMN
+    
+    # Tech & E-Commerce (2 saham)
+    'GOTO.JK',  # GoTo - Recovery play
+    'BUKA.JK',  # Bukalapak - E-commerce turnaround
+    
+    # Consumer & Pharma (4 saham)
+    'UNVR.JK',  # Unilever - FMG leader, dividen
+    'INDF.JK',  # Indofood - Essential goods
+    'KAEF.JK',  # Kimia Farma - Pharma growth
+    'MERK.JK',  # Merck - Pharma stable
+    
+    # Utilities & Infrastructure (4 saham)
+    'TLKM.JK',  # Telkom - Telecom stable
+    'PGAS.JK',  # Gas Negara - Dividen tinggi
+    'WIKA.JK',  # Wika - Infrastructure (IKN project)
+    'PTBA.JK',  # Bukit Asam - Coal, dividen bagus
+    
+    # Cyclical (2 saham)
+    'ASII.JK',  # Astra - Auto/financing recovery
+    'UNTR.JK',  # United Tractors - Mining equipment
+]
 TIMEZONE = pytz.timezone('Asia/Jakarta')
 
 # Parameter Technical Indicators
