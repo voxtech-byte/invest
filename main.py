@@ -323,31 +323,11 @@ async def main():
     
     for symbol in config['stocks']:
         df = fetch_data(symbol, config)
-        if df is None: continue
+        if df is not None:
+            df = calculate_indicators(df, config)
+            signal_data, reason = evaluate_signals(symbol, df, config)
             
-        df = calculate_indicators(df, config)
-        
-        signal_data, reason = evaluate_signals(symbol, df, config)
-        
-        if signal_data:
-            all_stocks_status.append(signal_data['data'])
-            
-            sig_type = signal_data['type']
-            if check_cooldown(symbol, sig_type, state, config):
-                print(f"[{symbol}] Alert '{sig_type}' distop (Cooldown < 6 jam)")
-                continue
-                
-            msg = format_alert(signal_data)
-            await send_telegram(msg)
-            signals_sent_today.append(symbol)
-            
-            # Save State
-            state[symbol] = {
-                'signal': sig_type,
-                'time': datetime.now(TIMEZONE).isoformat()
-            }
-        elif reason == "HOLD":
-            # For status report
+            # Selalu masukkan ke status report jika data berhasil ditarik
             last_row = df.iloc[-1]
             ma200_col = f"SMA_{config['indicators']['ma_long']}"
             all_stocks_status.append({
@@ -355,11 +335,27 @@ async def main():
                 'close': last_row['Close'],
                 'rsi': last_row[f"RSI_{config['indicators']['rsi_length']}"],
                 'ma200': last_row[ma200_col],
+                'pct_1d': last_row['Pct_Change_1D'],
                 'trend': 'BULLISH' if last_row['Close'] > last_row[ma200_col] else 'BEARISH'
             })
-            print(f"[{symbol}] HOLD / No Signal")
-        else:
-            print(f"[{symbol}] Filtered: {reason}")
+
+            if signal_data:
+                sig_type = signal_data['type']
+                if check_cooldown(symbol, sig_type, state, config):
+                    print(f"[{symbol}] Alert '{sig_type}' distop (Cooldown < 6 jam)")
+                    continue
+                    
+                msg = format_alert(signal_data)
+                await send_telegram(msg)
+                signals_sent_today.append(symbol)
+                
+                # Save State
+                state[symbol] = {
+                    'signal': sig_type,
+                    'time': datetime.now(TIMEZONE).isoformat()
+                }
+            else:
+                print(f"[{symbol}] {reason}")
             
             
     # Send report if no signals were fired
