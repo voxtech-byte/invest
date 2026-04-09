@@ -13,6 +13,11 @@
     "rsi_overbought": 70,
     "ma_short": 50,
     "ma_long": 200,
+    "macd_fast": 12,
+    "macd_slow": 26,
+    "macd_signal": 9,
+    "bb_period": 20,
+    "bb_std": 2.0,
     "volume_avg_period": 20,
     "volume_spike_mild": 1.2,
     "volume_spike_normal": 1.5,
@@ -20,14 +25,17 @@
     "price_breakout_min": 0.02,
     "price_dip_touch_ma50": 0.02,
     "price_rise_5day_min": 0.10,
-    "price_drop_max": 0.15
+    "price_drop_max": 0.15,
+    "sr_lookback_days": 90
   },
 
   "signals": {
     "signal_cooldown_hours": 6,
     "send_status_report_if_no_alerts": true,
     "ignore_downtrend_days": 3,
-    "price_peak_lookback_days": 90
+    "price_peak_lookback_days": 90,
+    "min_conviction_watchlist": 3,
+    "min_conviction_alert": 5
   },
 
   "telegram": {

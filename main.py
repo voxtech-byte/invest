@@ -8,7 +8,7 @@ import pandas as pd
 import pandas_ta as ta
 from telegram import Bot
 import matplotlib
-matplotlib.use('Agg') # Headless mode for server
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import mplfinance as mpf
 
@@ -36,18 +36,17 @@ def save_state(state):
         with open(STATE_FILE, 'w') as f:
             json.dump(state, f)
     except Exception as e:
-        print(f"Gagal menyimpan state: {e}")
+        print(f"Failed to save state: {e}")
 
 def fetch_data(symbol, config):
-    print(f"[{symbol}] Mengambil data...")
+    print(f"[{symbol}] Fetching data...")
     try:
         stock = yf.Ticker(symbol)
         df = stock.history(period="1y", interval="1d")
         if df.empty:
-            print(f"[{symbol}] Data kosong!")
+            print(f"[{symbol}] Empty data!")
             return None
             
-        # Get peak price for looking back
         lookback = config['signals']['price_peak_lookback_days']
         if len(df) >= lookback:
             df['Peak_Price'] = df['High'].rolling(window=lookback, min_periods=1).max()
@@ -56,7 +55,7 @@ def fetch_data(symbol, config):
             
         return df
     except Exception as e:
-        print(f"[{symbol}] Gagal mengambil data: {e}")
+        print(f"[{symbol}] Fetch error: {e}")
         return None
 
 def calculate_indicators(df, config):
@@ -68,20 +67,30 @@ def calculate_indicators(df, config):
     df['Pct_Change_1D'] = df['Close'].pct_change() * 100
     df['Pct_Change_5D'] = df['Close'].pct_change(periods=5) * 100
     
-    # Drops from Peak
+    # Drop from Peak
     df['Drop_From_Peak_Pct'] = ((df['Peak_Price'] - df['Close']) / df['Peak_Price']) * 100
     
-    # MA
+    # Moving Averages
     df.ta.sma(length=ind_cfg['ma_short'], append=True)
     df.ta.sma(length=ind_cfg['ma_long'], append=True)
     
-    # Volume Rata-rata
+    # MACD
+    df.ta.macd(fast=ind_cfg['macd_fast'], slow=ind_cfg['macd_slow'], signal=ind_cfg['macd_signal'], append=True)
+    
+    # Bollinger Bands
+    df.ta.bbands(length=ind_cfg['bb_period'], std=ind_cfg['bb_std'], append=True)
+    
+    # Volume Average
     df['Vol_Avg'] = df['Volume'].rolling(window=ind_cfg['volume_avg_period']).mean()
+    
+    # Support & Resistance (High/Low dari N hari terakhir)
+    sr_days = ind_cfg['sr_lookback_days']
+    df['Support_Level'] = df['Low'].rolling(window=sr_days, min_periods=1).min()
+    df['Resistance_Level'] = df['High'].rolling(window=sr_days, min_periods=1).max()
     
     return df
 
 def is_downtrend(df, config):
-    # Check if close < MA200 for N consecutive days
     days = config['signals']['ignore_downtrend_days']
     if len(df) < days: return False
     
@@ -116,29 +125,36 @@ def detect_candles(df):
     
     patterns = []
     
-    # Doji
     if total_range > 0 and body / total_range < 0.1:
-        patterns.append("Doji (Pasar Bimbang)")
+        patterns.append("Doji")
         
-    # Hammer
     if lower_shade > (2 * body) and upper_shade < (0.5 * body) and total_range > 0:
-        patterns.append("Hammer (Potensi Rebound)")
+        patterns.append("Hammer")
         
-    # Bullish Engulfing
-    prev_body = prev['Close'] - prev['Open'] # Red if negative
+    prev_body = prev['Close'] - prev['Open']
     if prev_body < 0 and (last['Close'] > prev['Open']) and (last['Open'] < prev['Close']):
-        patterns.append("Bullish Engulfing (Pembalikan Naik)")
+        patterns.append("Bullish Engulfing")
         
     return ", ".join(patterns) if patterns else ""
+
+# ============================================================
+# V5 MULTI-CONFIRMATION SCORING ENGINE
+# ============================================================
 
 def evaluate_signals(symbol, df, config):
     last_row = df.iloc[-1]
     prev_row = df.iloc[-2] if len(df) > 1 else last_row
     
     ind_cfg = config['indicators']
+    sig_cfg = config['signals']
     ma50_col = f"SMA_{ind_cfg['ma_short']}"
     ma200_col = f"SMA_{ind_cfg['ma_long']}"
     rsi_col = f"RSI_{ind_cfg['rsi_length']}"
+    macd_col = f"MACD_{ind_cfg['macd_fast']}_{ind_cfg['macd_slow']}_{ind_cfg['macd_signal']}"
+    macd_sig_col = f"MACDs_{ind_cfg['macd_fast']}_{ind_cfg['macd_slow']}_{ind_cfg['macd_signal']}"
+    macd_hist_col = f"MACDh_{ind_cfg['macd_fast']}_{ind_cfg['macd_slow']}_{ind_cfg['macd_signal']}"
+    bb_lower_col = f"BBL_{ind_cfg['bb_period']}_{ind_cfg['bb_std']}"
+    bb_upper_col = f"BBU_{ind_cfg['bb_period']}_{ind_cfg['bb_std']}"
     
     try:
         close = last_row['Close']
@@ -151,9 +167,18 @@ def evaluate_signals(symbol, df, config):
         pct_1d = last_row['Pct_Change_1D']
         pct_5d = last_row['Pct_Change_5D']
         drop_peak = last_row['Drop_From_Peak_Pct']
+        support = last_row['Support_Level']
+        resistance = last_row['Resistance_Level']
     except KeyError:
-        return None, "Indikator belum lengkap."
+        return None, "Indicators incomplete."
         
+    # Safe access for optional indicators
+    macd_val = last_row.get(macd_col)
+    macd_sig = last_row.get(macd_sig_col)
+    macd_hist = last_row.get(macd_hist_col)
+    bb_lower = last_row.get(bb_lower_col)
+    bb_upper = last_row.get(bb_upper_col)
+    
     if pd.isna(rsi) or pd.isna(ma50) or pd.isna(ma200) or pd.isna(vol_avg) or vol_avg == 0:
         return None, "Data NaN"
 
@@ -161,57 +186,148 @@ def evaluate_signals(symbol, df, config):
     is_downtrend_flag = is_downtrend(df, config)
     candle_pattern = detect_candles(df)
     
-    # RULE 1: Noise Filter
-    if abs(pct_1d) < (ind_cfg['price_breakout_min']*100) and vol_ratio < ind_cfg['volume_spike_mild']:
-        return None, "NOISE"
-        
+    # ========== SCORING: BUY side ==========
+    buy_score = 0
+    buy_layers = {}
+    
+    # Layer 1: RSI Oversold
+    if rsi < ind_cfg['rsi_oversold']:
+        buy_score += 1
+        buy_layers['RSI'] = f"Oversold ({rsi:.0f})"
+    elif rsi < 40:
+        buy_score += 0.5
+        buy_layers['RSI'] = f"Low Zone ({rsi:.0f})"
+    
+    # Layer 2: MA50 Support Test
+    if close > ma200 and (abs(close - ma50) / ma50) <= ind_cfg['price_dip_touch_ma50']:
+        buy_score += 1
+        buy_layers['MA50'] = "Support Test"
+    
+    # Layer 3: MA200 Uptrend
+    if close > ma200:
+        buy_score += 1
+        buy_layers['MA200'] = "Uptrend Confirmed"
+    
+    # Layer 4: Volume Confirmation
+    if vol_ratio >= ind_cfg['volume_spike_strong']:
+        buy_score += 1
+        buy_layers['Volume'] = f"Spike ({vol_ratio:.1f}x)"
+    elif vol_ratio >= ind_cfg['volume_spike_mild']:
+        buy_score += 0.5
+        buy_layers['Volume'] = f"Above Avg ({vol_ratio:.1f}x)"
+    
+    # Layer 5: MACD Bullish
+    if macd_hist is not None and not pd.isna(macd_hist):
+        prev_hist = prev_row.get(macd_hist_col)
+        if macd_hist > 0:
+            buy_score += 1
+            buy_layers['MACD'] = "Bullish Momentum"
+        elif prev_hist is not None and not pd.isna(prev_hist) and macd_hist > prev_hist:
+            buy_score += 0.5
+            buy_layers['MACD'] = "Momentum Improving"
+    
+    # Layer 6: Bollinger Bands — Near Lower Band
+    if bb_lower is not None and not pd.isna(bb_lower):
+        if close <= bb_lower:
+            buy_score += 1
+            buy_layers['BB'] = "Below Lower Band"
+        elif (close - bb_lower) / close <= 0.02:
+            buy_score += 0.5
+            buy_layers['BB'] = "Near Lower Band"
+    
+    # Layer 7: Near Support Level
+    if (abs(close - support) / close) <= 0.03:
+        buy_score += 1
+        buy_layers['S/R'] = f"Near Support ({support:,.0f})"
+    
+    # Layer 8: Candlestick Pattern
+    if candle_pattern and any(p in candle_pattern for p in ["Hammer", "Engulfing"]):
+        buy_score += 1
+        buy_layers['Candle'] = candle_pattern
+    elif candle_pattern:
+        buy_score += 0.5
+        buy_layers['Candle'] = candle_pattern
+
+    # ========== SCORING: SELL side ==========
+    sell_score = 0
+    sell_layers = {}
+    
+    # Layer 1: RSI Overbought
+    if rsi > ind_cfg['rsi_overbought']:
+        sell_score += 1
+        sell_layers['RSI'] = f"Overbought ({rsi:.0f})"
+    elif rsi > 60:
+        sell_score += 0.5
+        sell_layers['RSI'] = f"High Zone ({rsi:.0f})"
+    
+    # Layer 2: MA200 Breakdown
+    if close < ma200:
+        sell_score += 1
+        sell_layers['MA200'] = "Below MA200"
+    if close < ma200 and prev_close > ma200:
+        sell_score += 1  # Extra point for fresh breakdown
+        sell_layers['MA200'] = "Fresh Breakdown!"
+    
+    # Layer 3: Volume on Sell
+    if vol_ratio >= ind_cfg['volume_spike_mild'] and pct_1d < 0:
+        sell_score += 1
+        sell_layers['Volume'] = f"Distribution ({vol_ratio:.1f}x)"
+    
+    # Layer 4: MACD Bearish
+    if macd_hist is not None and not pd.isna(macd_hist):
+        if macd_hist < 0:
+            sell_score += 1
+            sell_layers['MACD'] = "Bearish Momentum"
+    
+    # Layer 5: Bollinger Bands — Near Upper Band
+    if bb_upper is not None and not pd.isna(bb_upper):
+        if close >= bb_upper:
+            sell_score += 1
+            sell_layers['BB'] = "Above Upper Band"
+    
+    # Layer 6: Near Resistance Level
+    if (abs(close - resistance) / close) <= 0.03:
+        sell_score += 1
+        sell_layers['S/R'] = f"Near Resistance ({resistance:,.0f})"
+    
+    # Determine dominant direction & signal
     signal = None
     confidence = None
     desc = None
+    layers = {}
+    score = 0
+    direction = "NEUTRAL"
     
-    # SIGNALS 
+    min_watchlist = sig_cfg['min_conviction_watchlist']
+    min_alert = sig_cfg['min_conviction_alert']
     
-    # 1. VOLUME BREAKOUT (HIGH)
-    if pct_1d >= (ind_cfg['price_breakout_min']*100) and vol_ratio >= ind_cfg['volume_spike_strong'] and close > ma200:
-        signal = "VOLUME_BREAKOUT"
-        confidence = "HIGH"
-        desc = "Strong accumulation with price/volume breakout."
+    if buy_score >= min_watchlist and buy_score > sell_score and not is_downtrend_flag:
+        direction = "BUY"
+        score = buy_score
+        layers = buy_layers
         
-    # 5. BREAKDOWN (SELL) (HIGH)
-    elif close < ma200 and prev_close > ma200 and vol_ratio > 1.3:
-        signal = "BEARISH_BREAKDOWN"
-        confidence = "HIGH"
-        desc = "Trend reversal below MA200. Bearish confirmation."
-        if candle_pattern: desc += f" (Pola: {candle_pattern})"
-        
-    # 2. BUY ON DIP (MEDIUM-HIGH)
-    elif (abs(close - ma50) / ma50) <= ind_cfg['price_dip_touch_ma50'] and rsi > 30 and close > ma200 and vol_ratio >= 0.9:
-        if not is_downtrend_flag:
-            signal = "BUY_ON_DIP"
-            confidence = "MEDIUM-HIGH"
-            desc = "Healthy retracement near MA50 Support."
-            if candle_pattern: desc += f" (Pattern: {candle_pattern})"
-            
-    # 3. RSI OVERSOLD (MEDIUM)
-    elif rsi < ind_cfg['rsi_oversold'] and close > ma200 and vol_ratio > ind_cfg['volume_spike_mild'] and drop_peak < (ind_cfg['price_drop_max']*100):
-        if not is_downtrend_flag:
-            signal = "RSI_OVERSOLD"
+        if score >= min_alert:
+            signal = "STRONG_BUY"
+            confidence = "HIGH"
+            desc = "Multiple confirmations align for potential entry."
+        else:
+            signal = "WATCHLIST_BUY"
             confidence = "MEDIUM"
-            desc = "Technically oversold on long-term uptrend."
-            if candle_pattern: desc += f" (Pattern: {candle_pattern})"
-
-    # 4. POTENTIAL REBOUND (💎 MURAH & BERPOTENSI)
-    elif (abs(close - ma200) / ma200) <= 0.03 and pct_1d > 0 and close > ma200:
-        signal = "POTENTIAL_REBOUND"
-        confidence = "HIGH"
-        desc = "Support test near MA200 with bullish rejection."
-        if candle_pattern: desc += f" (Pattern: {candle_pattern})"
-
-    # 5. RSI OVERBOUGHT (SELL) (MEDIUM)
-    elif rsi > ind_cfg['rsi_overbought'] and pct_5d > (ind_cfg['price_rise_5day_min']*100) and vol_ratio < 1.0:
-        signal = "OVERBOUGHT_SIGNAL"
-        confidence = "MEDIUM"
-        desc = "RSI overextended. Profit taking recommended."
+            desc = "Moderate buy signals. Monitor for additional confirmation."
+            
+    elif sell_score >= min_watchlist and sell_score > buy_score:
+        direction = "SELL"
+        score = sell_score
+        layers = sell_layers
+        
+        if score >= min_alert:
+            signal = "STRONG_SELL"
+            confidence = "HIGH"
+            desc = "Multiple bearish confirmations. Take profit / cut loss recommended."
+        else:
+            signal = "WATCHLIST_SELL"
+            confidence = "MEDIUM"
+            desc = "Moderate sell signals. Consider risk management."
 
     # Status Compilation
     status_summary = {
@@ -224,7 +340,14 @@ def evaluate_signals(symbol, df, config):
         'vol_ratio': vol_ratio,
         'pct_1d': pct_1d,
         'pattern': candle_pattern,
-        'trend': 'BULLISH (UPTREND)' if close > ma200 else 'BEARISH (DOWNTREND)'
+        'macd_hist': macd_hist if macd_hist is not None and not pd.isna(macd_hist) else 0,
+        'bb_lower': bb_lower if bb_lower is not None and not pd.isna(bb_lower) else 0,
+        'bb_upper': bb_upper if bb_upper is not None and not pd.isna(bb_upper) else 0,
+        'support': support,
+        'resistance': resistance,
+        'buy_score': buy_score,
+        'sell_score': sell_score,
+        'trend': 'BULLISH' if close > ma200 else 'BEARISH'
     }
 
     if signal:
@@ -232,72 +355,99 @@ def evaluate_signals(symbol, df, config):
             'type': signal,
             'confidence': confidence,
             'desc': desc,
+            'direction': direction,
+            'score': score,
+            'layers': layers,
             'data': status_summary
         }
         return result, "SIGNAL_DETECTED"
     
     return None, "HOLD"
 
+# ============================================================
+# CHART GENERATOR (V5 — with BB + MACD panels)
+# ============================================================
+
 def generate_chart(symbol, df, config):
-    # Gunakan data 30 hari terakhir untuk chart agar lilin terlihat jelas
     df_plot = df.tail(30).copy()
     
     ind_cfg = config['indicators']
-    ma_s = ind_cfg['ma_short']
-    ma_l = ind_cfg['ma_long']
-    rsi_len = ind_cfg['rsi_length']
-    
-    ma_s_col = f"SMA_{ma_s}"
-    ma_l_col = f"SMA_{ma_l}"
-    rsi_col = f"RSI_{rsi_len}"
+    ma_s_col = f"SMA_{ind_cfg['ma_short']}"
+    ma_l_col = f"SMA_{ind_cfg['ma_long']}"
+    rsi_col = f"RSI_{ind_cfg['rsi_length']}"
+    macd_hist_col = f"MACDh_{ind_cfg['macd_fast']}_{ind_cfg['macd_slow']}_{ind_cfg['macd_signal']}"
+    bb_lower_col = f"BBL_{ind_cfg['bb_period']}_{ind_cfg['bb_std']}"
+    bb_upper_col = f"BBU_{ind_cfg['bb_period']}_{ind_cfg['bb_std']}"
+    bb_mid_col = f"BBM_{ind_cfg['bb_period']}_{ind_cfg['bb_std']}"
     
     apds = []
-    # Garis MA (Moving Average)
+    
+    # MA Lines
     if ma_s_col in df_plot.columns:
-        apds.append(mpf.make_addplot(df_plot[ma_s_col], color='blue', width=1.0, label=f'MA{ma_s}'))
+        apds.append(mpf.make_addplot(df_plot[ma_s_col], color='dodgerblue', width=1.0))
     if ma_l_col in df_plot.columns:
-        apds.append(mpf.make_addplot(df_plot[ma_l_col], color='red', width=1.2, label=f'MA{ma_l}'))
-        
-    # RSI Panel (Di bawah grafik utama)
+        apds.append(mpf.make_addplot(df_plot[ma_l_col], color='red', width=1.2))
+    
+    # Bollinger Bands overlay
+    if bb_upper_col in df_plot.columns and bb_lower_col in df_plot.columns:
+        apds.append(mpf.make_addplot(df_plot[bb_upper_col], color='gray', width=0.5, linestyle='dashed'))
+        apds.append(mpf.make_addplot(df_plot[bb_lower_col], color='gray', width=0.5, linestyle='dashed'))
+    
+    # RSI Panel (panel 1)
     if rsi_col in df_plot.columns:
         apds.append(mpf.make_addplot(df_plot[rsi_col], panel=1, color='purple', width=0.8, secondary_y=False))
+    
+    # MACD Histogram (panel 2)
+    if macd_hist_col in df_plot.columns:
+        colors = ['green' if v >= 0 else 'red' for v in df_plot[macd_hist_col].fillna(0)]
+        apds.append(mpf.make_addplot(df_plot[macd_hist_col], panel=2, type='bar', color=colors, secondary_y=False))
 
-    # Plot & Save
     file_path = f"{symbol.split('.')[0]}_chart.png"
     
-    # Buat style kustom yang clean
-    s = mpf.make_mpf_style(base_mpf_style='charles', gridstyle='', facecolor='#f0f0f0')
+    s = mpf.make_mpf_style(base_mpf_style='charles', gridstyle='', facecolor='#f5f5f5')
     
     mpf.plot(df_plot, type='candle', style=s, 
-             addplot=apds, 
-             title=f"\n{symbol} - Analisa Teknikal",
+             addplot=apds if apds else None,
+             title=f"\n{symbol} — Technical Analysis (V5)",
              volume=True, 
              savefig=file_path,
-             figratio=(12, 8),
+             figratio=(14, 10),
              tight_layout=True)
              
     return file_path
+
+# ============================================================
+# FORMATTERS
+# ============================================================
 
 def format_alert(signal_data):
     s = signal_data['data']
     sig = signal_data['type']
     conf = signal_data['confidence']
     desc = signal_data['desc']
+    direction = signal_data['direction']
+    score = signal_data['score']
+    layers = signal_data['layers']
     
     format_rp = lambda n: f"Rp {n:,.0f}".replace(',', '.')
     format_vol = lambda n: f"{n/1_000_000:.1f}M" if n >= 1e6 else f"{n/1_000:.1f}K"
     
     sym_name = s['symbol'].split('.')[0]
     
-    if sig in ["VOLUME_BREAKOUT", "BUY_ON_DIP", "RSI_OVERSOLD", "POTENTIAL_REBOUND"]:
-        if sig == "VOLUME_BREAKOUT": icon = "🚨"
-        elif sig == "BUY_ON_DIP": icon = "📍"
-        elif sig == "RSI_OVERSOLD": icon = "📉"
-        else: icon = "💎" # POTENTIAL_REBOUND
-        alert_title = f"{icon} BUY SIGNAL - {sig.replace('_', ' ')}"
+    if direction == "BUY":
+        if conf == "HIGH":
+            icon = "🚨"
+            alert_title = f"{icon} STRONG BUY SIGNAL"
+        else:
+            icon = "👀"
+            alert_title = f"{icon} WATCHLIST — BUY SIGNAL"
     else:
-        icon = "🔴" if sig == "OVERBOUGHT_SIGNAL" else "🚨"
-        alert_title = f"{icon} SELL SIGNAL - {sig.replace('_', ' ')}"
+        if conf == "HIGH":
+            icon = "🔴"
+            alert_title = f"{icon} STRONG SELL SIGNAL"
+        else:
+            icon = "⚠️"
+            alert_title = f"{icon} WATCHLIST — SELL SIGNAL"
         
     msg = f"*{alert_title}*\n\n"
     msg += f"🏢 Symbol: *{sym_name}*\n"
@@ -305,73 +455,86 @@ def format_alert(signal_data):
     pct_sign = "↑" if s['pct_1d'] > 0 else "↓"
     msg += f"💵 Price: {format_rp(s['close'])} ({pct_sign} {abs(s['pct_1d']):.1f}%)\n"
     msg += f"📊 Volume: {format_vol(s['vol'])} ({s['vol_ratio']*100:.0f}% of Avg)\n"
+    msg += f"📈 RSI: {s['rsi']:.1f}\n"
+    msg += f"📏 MA200: {format_rp(s['ma200'])}\n\n"
     
-    if sig == "BUY_ON_DIP":
-        msg += f"📏 Support MA50: {format_rp(s['ma50'])}\n"
-    msg += f"📏 Baseline MA200: {format_rp(s['ma200'])}\n"
-    msg += f"📈 Momentum RSI: {s['rsi']:.1f}\n\n"
+    # Conviction Score
+    msg += f"🎯 Conviction Score: *{score:.0f}/8 ({conf})*\n"
     
-    msg += f"🎯 Conviction: *{conf}*\n"
-    msg += f"💡 Technical Insights: {desc}\n"
+    # Layer detail
+    all_layers = ['RSI', 'MA50', 'MA200', 'Volume', 'MACD', 'BB', 'S/R', 'Candle']
+    layer_str = ""
+    for l in all_layers:
+        if l in layers:
+            layer_str += f"✓ {l} "
+        else:
+            layer_str += f"✗ {l} "
+    msg += f"{layer_str}\n\n"
+    
+    # Detail per layer
+    for key, val in layers.items():
+        msg += f"  • {key}: {val}\n"
+    
+    msg += f"\n💡 Insights: {desc}\n"
     
     return msg
 
 def format_status_report(all_stocks_status):
-    bullish_stocks = [s for s in all_stocks_status if s['trend'] == 'BULLISH (UPTREND)']
-    bearish_stocks = [s for s in all_stocks_status if s['trend'] == 'BEARISH (DOWNTREND)']
+    bullish_stocks = [s for s in all_stocks_status if s['trend'] == 'BULLISH']
+    bearish_stocks = [s for s in all_stocks_status if s['trend'] == 'BEARISH']
     
     format_rp = lambda n: f"Rp {n:,.0f}".replace(',', '.')
     
-    msg = f"📊 *MARKET STATUS REPORT - {datetime.now(TIMEZONE).strftime('%d %b %Y, %H:%M WIB')}*\n"
-    msg += "="*40 + "\n\n"
+    msg = f"📊 *MARKET STATUS REPORT — {datetime.now(TIMEZONE).strftime('%d %b %Y, %H:%M WIB')}*\n"
+    msg += "=" * 40 + "\n\n"
     
     # BULLISH
     msg += f"📈 *BULLISH ZONE (Price > MA200):*\n"
+    if not bullish_stocks:
+        msg += "— No stocks in bullish zone —\n"
     for i, s in enumerate(bullish_stocks, 1):
         sym = s['symbol'].split('.')[0]
-        status = "ACCUMULATION" if s['rsi'] < 40 else "STABLE"
-        pattern_txt = f" | Pattern: {s['pattern']}" if s.get('pattern') else ""
-        msg += f"{i}. {sym} | {format_rp(s['close'])} | RSI: {s['rsi']:.0f} | Status: {status}{pattern_txt}\n"
+        rsi_status = "ACCUMULATION" if s['rsi'] < 40 else "STABLE"
+        macd_txt = "↑" if s.get('macd_hist', 0) > 0 else "↓"
+        pattern_txt = f" | {s['pattern']}" if s.get('pattern') else ""
+        msg += f"{i}. {sym} | {format_rp(s['close'])} | RSI: {s['rsi']:.0f} | MACD: {macd_txt} | {rsi_status}{pattern_txt}\n"
             
-    msg += "\n📉 *BEARISH ZONE (Price < MA200):*\n"
+    msg += f"\n📉 *BEARISH ZONE (Price < MA200):*\n"
+    if not bearish_stocks:
+        msg += "— No stocks in bearish zone —\n"
     for i, s in enumerate(bearish_stocks, 1):
         sym = s['symbol'].split('.')[0]
-        pattern_txt = f" | Pattern: {s['pattern']}" if s.get('pattern') else ""
-        msg += f"{i}. {sym} | {format_rp(s['close'])} | RSI: {s['rsi']:.0f} | Status: BEARISH{pattern_txt}\n"
+        macd_txt = "↑" if s.get('macd_hist', 0) > 0 else "↓"
+        pattern_txt = f" | {s['pattern']}" if s.get('pattern') else ""
+        msg += f"{i}. {sym} | {format_rp(s['close'])} | RSI: {s['rsi']:.0f} | MACD: {macd_txt} | BEARISH{pattern_txt}\n"
             
-    msg += "\n⚙️ *SUMMARY:* \n"
-    msg += f"✓ Total Universe: {len(all_stocks_status)} Stocks\n"
-    msg += f"✓ Bullish Count: {len(bullish_stocks)}\n"
-    msg += f"✓ Bearish Count: {len(bearish_stocks)}\n\n"
+    msg += f"\n⚙️ *SUMMARY:*\n"
+    msg += f"✓ Universe: {len(all_stocks_status)} Stocks\n"
+    msg += f"✓ Bullish: {len(bullish_stocks)} | Bearish: {len(bearish_stocks)}\n\n"
     
-    msg += "📌 *CONCLUSION:* \n"
-    msg += "• Overall Sentiment: NEUTRAL (No major breakouts detected)\n"
+    # Top Conviction Stocks
+    all_sorted = sorted(all_stocks_status, key=lambda x: max(x.get('buy_score', 0), x.get('sell_score', 0)), reverse=True)
+    top_3 = [s for s in all_sorted if max(s.get('buy_score', 0), s.get('sell_score', 0)) >= 2][:3]
+    if top_3:
+        msg += "🔍 *TOP CONVICTION:*\n"
+        for s in top_3:
+            sym = s['symbol'].split('.')[0]
+            bs = s.get('buy_score', 0)
+            ss = s.get('sell_score', 0)
+            if bs >= ss:
+                msg += f"  • {sym}: Buy Score {bs:.0f}/8\n"
+            else:
+                msg += f"  • {sym}: Sell Score {ss:.0f}/8\n"
+        msg += "\n"
+    
+    msg += "📌 *CONCLUSION:*\n"
     msg += "• Monitoring remains active for next session.\n"
     
     return msg
 
-def format_mini_report(all_stocks_status):
-    now_str = datetime.now(TIMEZONE).strftime('%H:%M WIB')
-    
-    bullish_count = len([s for s in all_stocks_status if s['trend'] == 'NAIK (AMAN)'])
-    bearish_count = len([s for s in all_stocks_status if s['trend'] == 'TURUN (WASPADA)'])
-    
-    # Sort for movers
-    movers = sorted(all_stocks_status, key=lambda x: x.get('pct_1d', 0) if x.get('pct_1d') is not None else 0, reverse=True)
-    top_mover = movers[0] if movers else None
-    laggard = movers[-1] if movers else None
-    
-    msg = f"📡 *Pantulan Pasar - {now_str}*\n"
-    msg += f"────────────────\n"
-    msg += f"✅ Tren Naik: {bullish_count} | ❌ Tren Turun: {bearish_count}\n"
-    
-    if top_mover:
-        msg += f"🔥 Paling Naik: {top_mover['symbol'].split('.')[0]} (+{top_mover['pct_1d']:.1f}%)\n"
-    if laggard:
-        msg += f"❄️ Paling Turun: {laggard['symbol'].split('.')[0]} ({laggard['pct_1d']:.1f}%)\n"
-        
-    msg += f"\n💡 *Status:* Aman & Stabil. Belum ada pergerakan ekstrem yang perlu tindakan."
-    return msg
+# ============================================================
+# TELEGRAM & MAIN
+# ============================================================
 
 async def send_telegram(message, photo_path=None):
     if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
@@ -381,16 +544,21 @@ async def send_telegram(message, photo_path=None):
     try:
         bot = Bot(token=TELEGRAM_BOT_TOKEN)
         if photo_path and os.path.exists(photo_path):
-            await bot.send_photo(chat_id=TELEGRAM_CHAT_ID, photo=open(photo_path, 'rb'), caption=message, parse_mode='Markdown')
-            os.remove(photo_path) # Hapus temp file
+            # Telegram caption max 1024 chars — if too long, send separately
+            if len(message) > 1024:
+                await bot.send_photo(chat_id=TELEGRAM_CHAT_ID, photo=open(photo_path, 'rb'))
+                await bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=message, parse_mode='Markdown')
+            else:
+                await bot.send_photo(chat_id=TELEGRAM_CHAT_ID, photo=open(photo_path, 'rb'), caption=message, parse_mode='Markdown')
+            os.remove(photo_path)
         else:
             await bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=message, parse_mode='Markdown')
-        print("Telegram dikirim!")
+        print("Telegram sent!")
     except Exception as e:
-        print(f"Gagal kirim telegram: {e}")
+        print(f"Telegram error: {e}")
 
 async def main():
-    print(f"=== Stock Notifier (V3 SMART FILTER) ({datetime.now(TIMEZONE).strftime('%Y-%m-%d %H:%M')}) ===")
+    print(f"=== Stock Notifier V5 (Multi-Confirmation) ({datetime.now(TIMEZONE).strftime('%Y-%m-%d %H:%M')}) ===")
     config = load_config()
     state = get_last_state()
     
@@ -404,9 +572,13 @@ async def main():
             signal_data, reason = evaluate_signals(symbol, df, config)
             candle_pattern = detect_candles(df)
             
-            # Selalu masukkan ke status report jika data berhasil ditarik
+            # Always add to status report
             last_row = df.iloc[-1]
             ma200_col = f"SMA_{config['indicators']['ma_long']}"
+            macd_hist_col = f"MACDh_{config['indicators']['macd_fast']}_{config['indicators']['macd_slow']}_{config['indicators']['macd_signal']}"
+            
+            macd_h = last_row.get(macd_hist_col)
+            
             all_stocks_status.append({
                 'symbol': symbol,
                 'close': last_row['Close'],
@@ -414,46 +586,49 @@ async def main():
                 'ma200': last_row[ma200_col],
                 'pct_1d': last_row['Pct_Change_1D'],
                 'pattern': candle_pattern,
-                'trend': 'BULLISH (UPTREND)' if last_row['Close'] > last_row[ma200_col] else 'BEARISH (DOWNTREND)'
+                'macd_hist': macd_h if macd_h is not None and not pd.isna(macd_h) else 0,
+                'buy_score': signal_data['score'] if signal_data and signal_data['direction'] == 'BUY' else 0,
+                'sell_score': signal_data['score'] if signal_data and signal_data['direction'] == 'SELL' else 0,
+                'trend': 'BULLISH' if last_row['Close'] > last_row[ma200_col] else 'BEARISH'
             })
 
             if signal_data:
                 sig_type = signal_data['type']
                 if check_cooldown(symbol, sig_type, state, config):
-                    print(f"[{symbol}] Alert '{sig_type}' distop (Cooldown < 6 jam)")
+                    print(f"[{symbol}] Alert '{sig_type}' blocked (Cooldown < 6h)")
                     continue
                     
                 msg = format_alert(signal_data)
                 
-                # Tambahan V4: Generate Chart untuk Sinyal Ekstrem/Semi-Ekstrem
+                # Generate chart only for HIGH conviction (STRONG signals)
                 photo_path = None
-                try:
-                    photo_path = generate_chart(symbol, df, config)
-                except Exception as e:
-                    print(f"[{symbol}] Gagal generate chart: {e}")
+                if signal_data['confidence'] == 'HIGH':
+                    try:
+                        photo_path = generate_chart(symbol, df, config)
+                    except Exception as e:
+                        print(f"[{symbol}] Chart error: {e}")
                 
                 await send_telegram(msg, photo_path=photo_path)
                 signals_sent_today.append(symbol)
                 
-                # Save State
                 state[symbol] = {
                     'signal': sig_type,
                     'time': datetime.now(TIMEZONE).isoformat()
                 }
+                print(f"[{symbol}] ⚡ {sig_type} (Score: {signal_data['score']:.0f}/8)")
             else:
                 print(f"[{symbol}] {reason}")
             
-            
-    # Selalu kirim laporan status Lengkap di setiap akhir pengecekan (Heartbeat)
+    # Always send status report
     now = datetime.now(TIMEZONE)
-    if config['signals']['send_status_report_if_no_alerts']: # Menggunakan config sebagai ijin kirim umum
+    if config['signals']['send_status_report_if_no_alerts']:
         if len(all_stocks_status) > 0:
-            print(f"\n>> Sesi Jam {now.hour}:00 WIB. Mengirim Rekap Pasar Lengkap...")
+            print(f"\n>> Session {now.hour}:00 WIB. Sending Market Status Report...")
             report = format_status_report(all_stocks_status)
             await send_telegram(report)
             
     save_state(state)
-    print("=== Pengecekan Selesai ===")
+    print("=== Scan Complete ===")
 
 if __name__ == "__main__":
     asyncio.run(main())
