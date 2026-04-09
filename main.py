@@ -7,6 +7,10 @@ import yfinance as yf
 import pandas as pd
 import pandas_ta as ta
 from telegram import Bot
+import matplotlib
+matplotlib.use('Agg') # Headless mode for server
+import matplotlib.pyplot as plt
+import mplfinance as mpf
 
 TIMEZONE = pytz.timezone('Asia/Jakarta')
 STATE_FILE = "last_signals.json"
@@ -99,6 +103,34 @@ def check_cooldown(symbol, signal_type, state, config):
                 return True
     return False
 
+def detect_candles(df):
+    if len(df) < 2: return ""
+    
+    last = df.iloc[-1]
+    prev = df.iloc[-2]
+    
+    body = abs(last['Close'] - last['Open'])
+    upper_shade = last['High'] - max(last['Close'], last['Open'])
+    lower_shade = min(last['Close'], last['Open']) - last['Low']
+    total_range = last['High'] - last['Low']
+    
+    patterns = []
+    
+    # Doji
+    if total_range > 0 and body / total_range < 0.1:
+        patterns.append("Doji (Pasar Bimbang)")
+        
+    # Hammer
+    if lower_shade > (2 * body) and upper_shade < (0.5 * body) and total_range > 0:
+        patterns.append("Hammer (Potensi Rebound)")
+        
+    # Bullish Engulfing
+    prev_body = prev['Close'] - prev['Open'] # Red if negative
+    if prev_body < 0 and (last['Close'] > prev['Open']) and (last['Open'] < prev['Close']):
+        patterns.append("Bullish Engulfing (Pembalikan Naik)")
+        
+    return ", ".join(patterns) if patterns else ""
+
 def evaluate_signals(symbol, df, config):
     last_row = df.iloc[-1]
     prev_row = df.iloc[-2] if len(df) > 1 else last_row
@@ -127,6 +159,7 @@ def evaluate_signals(symbol, df, config):
 
     vol_ratio = volume / vol_avg
     is_downtrend_flag = is_downtrend(df, config)
+    candle_pattern = detect_candles(df)
     
     # RULE 1: Noise Filter
     if abs(pct_1d) < (ind_cfg['price_breakout_min']*100) and vol_ratio < ind_cfg['volume_spike_mild']:
@@ -149,6 +182,7 @@ def evaluate_signals(symbol, df, config):
         signal = "WASPADA_JUAL"
         confidence = "TINGGI"
         desc = "Harga jebol kebawah, tren mulai rusak/turun."
+        if candle_pattern: desc += f" (Pola: {candle_pattern})"
         
     # 2. BUY ON DIP (MEDIUM-HIGH)
     elif (abs(close - ma50) / ma50) <= ind_cfg['price_dip_touch_ma50'] and rsi > 30 and close > ma200 and vol_ratio >= 0.9:
@@ -156,6 +190,7 @@ def evaluate_signals(symbol, df, config):
             signal = "BELI_SAAT_DISKON"
             confidence = "CUKUP_TINGGI"
             desc = "Harga lagi murah, pas buat mulai cicil beli."
+            if candle_pattern: desc += f" (Pola: {candle_pattern})"
             
     # 3. RSI OVERSOLD (MEDIUM)
     elif rsi < ind_cfg['rsi_oversold'] and close > ma200 and vol_ratio > ind_cfg['volume_spike_mild'] and drop_peak < (ind_cfg['price_drop_max']*100):
@@ -163,12 +198,14 @@ def evaluate_signals(symbol, df, config):
             signal = "HARGA_DIBANTING"
             confidence = "SEDANG"
             desc = "Harga sudah jatuh terlalu dalam, ada potensi mantul."
+            if candle_pattern: desc += f" (Pola: {candle_pattern})"
 
     # 4. POTENTIAL REBOUND (💎 MURAH & BERPOTENSI)
     elif (abs(close - ma200) / ma200) <= 0.03 and pct_1d > 0 and close > ma200:
         signal = "POTENSI_MANTUL"
         confidence = "TINGGI"
         desc = "Harga nempel batas aman & mulai naik lagi. Murah!"
+        if candle_pattern: desc += f" (Pola: {candle_pattern})"
 
     # 5. RSI OVERBOUGHT (SELL) (MEDIUM)
     elif rsi > ind_cfg['rsi_overbought'] and pct_5d > (ind_cfg['price_rise_5day_min']*100) and vol_ratio < 1.0:
@@ -186,6 +223,7 @@ def evaluate_signals(symbol, df, config):
         'vol': volume,
         'vol_ratio': vol_ratio,
         'pct_1d': pct_1d,
+        'pattern': candle_pattern,
         'trend': 'NAIK (AMAN)' if close > ma200 else 'TURUN (WASPADA)'
     }
 
@@ -199,6 +237,46 @@ def evaluate_signals(symbol, df, config):
         return result, "SIGNAL_DETECTED"
     
     return None, "HOLD"
+
+def generate_chart(symbol, df, config):
+    # Gunakan data 30 hari terakhir untuk chart agar lilin terlihat jelas
+    df_plot = df.tail(30).copy()
+    
+    ind_cfg = config['indicators']
+    ma_s = ind_cfg['ma_short']
+    ma_l = ind_cfg['ma_long']
+    rsi_len = ind_cfg['rsi_length']
+    
+    ma_s_col = f"SMA_{ma_s}"
+    ma_l_col = f"SMA_{ma_l}"
+    rsi_col = f"RSI_{rsi_len}"
+    
+    apds = []
+    # Garis MA (Moving Average)
+    if ma_s_col in df_plot.columns:
+        apds.append(mpf.make_addplot(df_plot[ma_s_col], color='blue', width=1.0, label=f'MA{ma_s}'))
+    if ma_l_col in df_plot.columns:
+        apds.append(mpf.make_addplot(df_plot[ma_l_col], color='red', width=1.2, label=f'MA{ma_l}'))
+        
+    # RSI Panel (Di bawah grafik utama)
+    if rsi_col in df_plot.columns:
+        apds.append(mpf.make_addplot(df_plot[rsi_col], panel=1, color='purple', width=0.8, secondary_y=False))
+
+    # Plot & Save
+    file_path = f"{symbol.split('.')[0]}_chart.png"
+    
+    # Buat style kustom yang clean
+    s = mpf.make_mpf_style(base_mpf_style='charles', gridstyle='', facecolor='#f0f0f0')
+    
+    mpf.plot(df_plot, type='candle', style=s, 
+             addplot=apds, 
+             title=f"\n{symbol} - Analisa Teknikal",
+             volume=True, 
+             savefig=file_path,
+             figratio=(12, 8),
+             tight_layout=True)
+             
+    return file_path
 
 def format_alert(signal_data):
     s = signal_data['data']
@@ -252,7 +330,8 @@ def format_status_report(all_stocks_status):
     for i, s in enumerate(bullish_stocks, 1):
         sym = s['symbol'].split('.')[0]
         status = "MURAH" if s['rsi'] < 40 else "NORMAL"
-        msg += f"{i}. {sym} | {format_rp(s['close'])} | Jenuh: {s['rsi']:.0f} | Posisi: {status}\n"
+        pattern_txt = f" | Pola: {s['pattern']}" if s.get('pattern') else ""
+        msg += f"{i}. {sym} | {format_rp(s['close'])} | Jenuh: {s['rsi']:.0f} | Posisi: {status}{pattern_txt}\n"
         if i >= 6:
             msg += f"... [{len(bullish_stocks)-i} lebih]\n"
             break
@@ -260,7 +339,8 @@ def format_status_report(all_stocks_status):
     msg += "\n📉 *ARUS TURUN (Harga < Rata-rata 1 Thn):*\n"
     for i, s in enumerate(bearish_stocks, 1):
         sym = s['symbol'].split('.')[0]
-        msg += f"{i}. {sym} | {format_rp(s['close'])} | Jenuh: {s['rsi']:.0f} | Posisi: WASPADA\n"
+        pattern_txt = f" | Pola: {s['pattern']}" if s.get('pattern') else ""
+        msg += f"{i}. {sym} | {format_rp(s['close'])} | Jenuh: {s['rsi']:.0f} | Posisi: WASPADA{pattern_txt}\n"
         if i >= 4:
             msg += f"... [{len(bearish_stocks)-i} lebih]\n"
             break
@@ -299,14 +379,18 @@ def format_mini_report(all_stocks_status):
     msg += f"\n💡 *Status:* Aman & Stabil. Belum ada pergerakan ekstrem yang perlu tindakan."
     return msg
 
-async def send_telegram(message):
+async def send_telegram(message, photo_path=None):
     if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
         print("Telegram Token missing. Log:\n", message)
         return
         
     try:
         bot = Bot(token=TELEGRAM_BOT_TOKEN)
-        await bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=message, parse_mode='Markdown')
+        if photo_path and os.path.exists(photo_path):
+            await bot.send_photo(chat_id=TELEGRAM_CHAT_ID, photo=open(photo_path, 'rb'), caption=message, parse_mode='Markdown')
+            os.remove(photo_path) # Hapus temp file
+        else:
+            await bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=message, parse_mode='Markdown')
         print("Telegram dikirim!")
     except Exception as e:
         print(f"Gagal kirim telegram: {e}")
@@ -334,7 +418,8 @@ async def main():
                 'rsi': last_row[f"RSI_{config['indicators']['rsi_length']}"],
                 'ma200': last_row[ma200_col],
                 'pct_1d': last_row['Pct_Change_1D'],
-                'trend': 'BULLISH' if last_row['Close'] > last_row[ma200_col] else 'BEARISH'
+                'pattern': candle_pattern,
+                'trend': 'NAIK (AMAN)' if last_row['Close'] > last_row[ma200_col] else 'TURUN (WASPADA)'
             })
 
             if signal_data:
@@ -344,7 +429,15 @@ async def main():
                     continue
                     
                 msg = format_alert(signal_data)
-                await send_telegram(msg)
+                
+                # Tambahan V4: Generate Chart untuk Sinyal Ekstrem/Semi-Ekstrem
+                photo_path = None
+                try:
+                    photo_path = generate_chart(symbol, df, config)
+                except Exception as e:
+                    print(f"[{symbol}] Gagal generate chart: {e}")
+                
+                await send_telegram(msg, photo_path=photo_path)
                 signals_sent_today.append(symbol)
                 
                 # Save State
@@ -356,17 +449,12 @@ async def main():
                 print(f"[{symbol}] {reason}")
             
             
-    # Send report if no signals were fired
+    # Selalu kirim laporan status Lengkap di setiap akhir pengecekan (Heartbeat)
     now = datetime.now(TIMEZONE)
-    if len(signals_sent_today) == 0 and config['signals']['send_status_report_if_no_alerts']:
+    if config['signals']['send_status_report_if_no_alerts']: # Menggunakan config sebagai ijin kirim umum
         if len(all_stocks_status) > 0:
-            if now.hour == 18:
-                print(f"\n>> Pukul {now.hour}:00 WIB. Mengirim Report Harian Lengkap...")
-                report = format_status_report(all_stocks_status)
-            else:
-                print(f"\n>> Pukul {now.hour}:00 WIB. Mengirim Mini Report...")
-                report = format_mini_report(all_stocks_status)
-                
+            print(f"\n>> Sesi Jam {now.hour}:00 WIB. Mengirim Rekap Pasar Lengkap...")
+            report = format_status_report(all_stocks_status)
             await send_telegram(report)
             
     save_state(state)

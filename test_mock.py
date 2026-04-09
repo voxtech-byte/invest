@@ -3,142 +3,101 @@ import asyncio
 from datetime import datetime
 import pytz
 import json
+import pandas as pd
+import os
 
 # Import functions from main.py
-from main import format_alert, format_status_report, format_mini_report, send_telegram, load_config
+from main import format_alert, format_status_report, format_mini_report, send_telegram, load_config, generate_chart
 
 TIMEZONE = pytz.timezone('Asia/Jakarta')
 
-def simulate_volume_breakout():
-    print("--- Simulating LONJAKAN_BELI (TINGGI) ---")
+def create_mock_df():
+    # Buat data dummy 30 hari untuk keperluan chart
+    dates = pd.date_range(end=datetime.now(), periods=30)
     data = {
-        'type': 'LONJAKAN_BELI',
-        'confidence': 'TINGGI',
-        'desc': 'Banyak yang borong saham ini, potensi naik lanjut.',
+        'Open': [100 + i for i in range(30)],
+        'High': [102 + i for i in range(30)],
+        'Low': [98 + i for i in range(30)],
+        'Close': [101 + i for i in range(30)],
+        'Volume': [1000000 for _ in range(30)],
+        'SMA_50': [100 for _ in range(30)],
+        'SMA_200': [90 for _ in range(30)],
+        'RSI_14': [50 for _ in range(30)]
+    }
+    df = pd.DataFrame(data, index=dates)
+    return df
+
+def simulate_signal(sig_name, desc, confidence, symbol='BMRI.JK'):
+    print(f"--- Simulating {sig_name} ---")
+    data = {
+        'type': sig_name,
+        'confidence': confidence,
+        'desc': desc,
         'data': {
-            'symbol': 'BMRI.JK',
+            'symbol': symbol,
             'close': 7250,
-            'rsi': 55.0,
+            'rsi': 35.0,
             'ma200': 7100,
             'ma50': 7000,
             'vol': 8500000,
             'vol_ratio': 2.1,
-            'pct_1d': 2.1,
+            'pct_1d': 2.5,
+            'pattern': 'Hammer (Potensi Rebound)',
             'trend': 'NAIK (AMAN)'
         }
     }
-    return format_alert(data)
-
-def simulate_buy_on_dip():
-    print("--- Simulating BELI_SAAT_DISKON (CUKUP TINGGI) ---")
-    data = {
-        'type': 'BELI_SAAT_DISKON',
-        'confidence': 'CUKUP_TINGGI',
-        'desc': 'Harga lagi murah, pas buat mulai cicil beli.',
-        'data': {
-            'symbol': 'ASII.JK',
-            'close': 4800,
-            'rsi': 35.0,
-            'ma200': 4700,
-            'ma50': 4810,
-            'vol': 3200000,
-            'vol_ratio': 1.0,
-            'pct_1d': -0.5,
-            'trend': 'NAIK (AMAN)'
-        }
-    }
-    return format_alert(data)
-
-def simulate_breakdown():
-    print("--- Simulating WASPADA_JUAL (TINGGI) ---")
-    data = {
-        'type': 'WASPADA_JUAL',
-        'confidence': 'TINGGI',
-        'desc': 'Harga jebol kebawah, tren mulai rusak/turun.',
-        'data': {
-            'symbol': 'TLKM.JK',
-            'close': 3890,
-            'rsi': 35.0,
-            'ma200': 3910,
-            'ma50': 4000,
-            'vol': 6500000,
-            'vol_ratio': 1.6,
-            'pct_1d': -2.5,
-            'trend': 'TURUN (WASPADA)'
-        }
-    }
-    return format_alert(data)
+    msg = format_alert(data)
+    
+    # Mocking chart generation
+    config = load_config()
+    df = create_mock_df()
+    photo_path = None
+    try:
+        photo_path = generate_chart(symbol, df, config)
+    except Exception as e:
+        print(f"Mock Chart Error: {e}")
+        
+    return msg, photo_path
 
 def simulate_status_report():
-    print("--- Simulating REKAP PASAR HARIAN (6 PM) ---")
+    print("--- Simulating REKAP PASAR HARIAN (Lengkap) ---")
     all_stocks_status = [
-        {'symbol': 'BBCA.JK', 'close': 10450, 'rsi': 45, 'ma200': 10100, 'trend': 'NAIK (AMAN)', 'pct_1d': 0.5},
-        {'symbol': 'BMRI.JK', 'close': 7200, 'rsi': 28, 'ma200': 7100, 'trend': 'NAIK (AMAN)', 'pct_1d': 1.2},
-        {'symbol': 'BRIS.JK', 'close': 4950, 'rsi': 32, 'ma200': 4800, 'trend': 'NAIK (AMAN)', 'pct_1d': -0.2},
-        {'symbol': 'BBNI.JK', 'close': 3850, 'rsi': 22, 'ma200': 3950, 'trend': 'TURUN (WASPADA)', 'pct_1d': -1.5},
-        {'symbol': 'PTBA.JK', 'close': 14200, 'rsi': 25, 'ma200': 14800, 'trend': 'TURUN (WASPADA)', 'pct_1d': 0.1}
+        {'symbol': 'BBCA.JK', 'close': 10450, 'rsi': 45, 'ma200': 10100, 'trend': 'NAIK (AMAN)', 'pct_1d': 0.5, 'pattern': ''},
+        {'symbol': 'BMRI.JK', 'close': 7200, 'rsi': 28, 'ma200': 7100, 'trend': 'NAIK (AMAN)', 'pct_1d': 1.2, 'pattern': 'Hammer'},
+        {'symbol': 'BBNI.JK', 'close': 3850, 'rsi': 22, 'ma200': 3950, 'trend': 'TURUN (WASPADA)', 'pct_1d': -1.5, 'pattern': 'Doji'}
     ]
-    return format_status_report(all_stocks_status)
-
-def simulate_mini_report():
-    print("--- Simulating PANTULAN PASAR (Quick Scan) ---")
-    all_stocks_status = [
-        {'symbol': 'BBCA.JK', 'trend': 'NAIK (AMAN)', 'pct_1d': 0.5},
-        {'symbol': 'BMRI.JK', 'trend': 'NAIK (AMAN)', 'pct_1d': 1.2},
-        {'symbol': 'BRIS.JK', 'trend': 'NAIK (AMAN)', 'pct_1d': -0.2},
-        {'symbol': 'BBNI.JK', 'trend': 'TURUN (WASPADA)', 'pct_1d': -1.5},
-        {'symbol': 'PTBA.JK', 'trend': 'TURUN (WASPADA)', 'pct_1d': 0.1}
-    ]
-    return format_mini_report(all_stocks_status)
-
-def simulate_potential_rebound():
-    print("--- Simulating POTENSI_MANTUL (💎 MURAH & BERPOTENSI) ---")
-    data = {
-        'type': 'POTENSI_MANTUL',
-        'confidence': 'TINGGI',
-        'desc': 'Harga nempel batas aman & mulai naik lagi. Murah!',
-        'data': {
-            'symbol': 'BBCA.JK',
-            'close': 10150,
-            'rsi': 42.0,
-            'ma200': 10100,
-            'ma50': 10300,
-            'vol': 5000000,
-            'vol_ratio': 1.1,
-            'pct_1d': 0.8,
-            'trend': 'NAIK (AMAN)'
-        }
-    }
-    return format_alert(data)
+    return format_status_report(all_stocks_status), None
 
 async def run_test():
-    parser = argparse.ArgumentParser(description="V3 Stock Notifier Mock Test")
-    parser.add_argument('--type', choices=['breakout', 'dip', 'breakdown', 'report', 'rebound', 'mini'], default='breakout', help="Type of signal to test")
+    parser = argparse.ArgumentParser(description="V4 Visual Notifier Mock Test")
+    parser.add_argument('--type', choices=['breakout', 'dip', 'breakdown', 'report', 'rebound'], default='breakout', help="Type of signal to test")
     parser.add_argument('--send-telegram', action='store_true', help="Send real Telegram notification")
     args = parser.parse_args()
 
     message = ""
+    photo_path = None
+    
     if args.type == 'breakout':
-        message = simulate_volume_breakout()
+        message, photo_path = simulate_signal('LONJAKAN_BELI', 'Banyak yang borong saham ini.', 'TINGGI')
     elif args.type == 'dip':
-        message = simulate_buy_on_dip()
-    elif args.type == 'breakdown':
-        message = simulate_breakdown()
-    elif args.type == 'report':
-        message = simulate_status_report()
-    elif args.type == 'mini':
-        message = simulate_mini_report()
+        message, photo_path = simulate_signal('BELI_SAAT_DISKON', 'Harga lagi murah, pas buat mulai cicil.', 'CUKUP TINGGI')
     elif args.type == 'rebound':
-        message = simulate_potential_rebound()
+        message, photo_path = simulate_signal('POTENSI_MANTUL', 'Harga nempel batas aman & mulai naik lagi.', 'TINGGI')
+    elif args.type == 'report':
+        message, photo_path = simulate_status_report()
 
     print("\n[PREVIEW MESSAGE]")
     print(message)
+    if photo_path:
+        print(f"[IMAGE GENERATED]: {photo_path}")
     print("-" * 20)
 
     if args.send_telegram:
         print("Sending to Telegram...")
-        await send_telegram(message)
+        await send_telegram(message, photo_path=photo_path)
     else:
+        if photo_path and os.path.exists(photo_path):
+            os.remove(photo_path) # Cleanup if not sending
         print("💡 Use --send-telegram to send this to your bot.")
 
 if __name__ == "__main__":
