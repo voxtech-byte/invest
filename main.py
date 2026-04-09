@@ -332,18 +332,12 @@ def format_status_report(all_stocks_status):
         status = "ACCUMULATION" if s['rsi'] < 40 else "STABLE"
         pattern_txt = f" | Pattern: {s['pattern']}" if s.get('pattern') else ""
         msg += f"{i}. {sym} | {format_rp(s['close'])} | RSI: {s['rsi']:.0f} | Status: {status}{pattern_txt}\n"
-        if i >= 6:
-            msg += f"... [{len(bullish_stocks)-i} more]\n"
-            break
             
     msg += "\n📉 *BEARISH ZONE (Price < MA200):*\n"
     for i, s in enumerate(bearish_stocks, 1):
         sym = s['symbol'].split('.')[0]
         pattern_txt = f" | Pattern: {s['pattern']}" if s.get('pattern') else ""
         msg += f"{i}. {sym} | {format_rp(s['close'])} | RSI: {s['rsi']:.0f} | Status: BEARISH{pattern_txt}\n"
-        if i >= 4:
-            msg += f"... [{len(bearish_stocks)-i} more]\n"
-            break
             
     msg += "\n⚙️ *SUMMARY:* \n"
     msg += f"✓ Total Universe: {len(all_stocks_status)} Stocks\n"
