@@ -9,30 +9,31 @@ from main import format_message, send_telegram_notification
 TIMEZONE = pytz.timezone('Asia/Jakarta')
 
 def simulate_signal():
-    print("=== MENSIMULASIKAN SIGNAL ===")
+    print("=== MENSIMULASIKAN SIGNAL (RELAXED MODE) ===")
     
-    # Dummy Signal Data mensimulasikan kondisi BUY
-    # Sesuai requirement: RSI < 30, Harga > MA200, Volume > 150%
+    # Dummy Signal Data mensimulasikan kondisi BUY (Volume Breakout & Golden Cross hybrid)
     signal_data = {
-        'symbol': 'BBCA.JK',
+        'symbol': 'GOTO.JK',
         'signal': 'BUY',
-        'confidence': 'HIGH',
-        'close': 10450,
-        'rsi': 28.1,
-        'ma50': 10300,
-        'ma200': 10100,
-        'volume': 5200000,
-        'vol_avg': 1850000, # Avg Vol 1.85M, Vol hari ini 5.2M (↑281% vs avg)
+        'reason': 'Volume Breakout! Harga naik > 2% diiringi ledakan volume 🚀',
+        'confidence': 'MEDIUM',
+        'close': 85,
+        'pct_change': 6.2,
+        'rsi': 55.4,
+        'ma20': 78,
+        'ma50': 75,
+        'ma200': 60,
+        'volume': 4500000000,
+        'vol_avg': 1200000000,
         'time': datetime.now(TIMEZONE)
     }
     
     print(f"Data tersimulasi untuk {signal_data['symbol']}:")
     for k, v in signal_data.items():
-        # Hide unneeded output formatting details
         print(f"  {k}: {v}")
         
     msg = format_message(signal_data)
-    print("\n[PREVIEW] Format Pesan Telegram:")
+    print("\n[PREVIEW] Format Pesan Telegram Terbaru:")
     print("-" * 40)
     print(msg)
     print("-" * 40)
@@ -50,9 +51,8 @@ async def run_test():
         print("\n🚀 Menghubungi Telegram API...")
         await send_telegram_notification(msg)
     else:
-        print("\n💡 TIP: Gunakan argumen '--send-telegram' untuk mengirim pesan dummy ini ke Telegram.")
-        print("Pastikan Anda sudah set `TELEGRAM_BOT_TOKEN` dan `TELEGRAM_CHAT_ID` env variables.")
-        print("Contoh: python test_mock.py --send-telegram")
+        print("\n💡 TIP: Gunakan argumen '--send-telegram' untuk mengirim pesan dummy ke Telegram.")
+        print("Contoh: python3 test_mock.py --send-telegram")
 
 if __name__ == "__main__":
     asyncio.run(run_test())
