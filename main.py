@@ -173,45 +173,45 @@ def evaluate_signals(symbol, df, config):
     
     # 1. VOLUME BREAKOUT (HIGH)
     if pct_1d >= (ind_cfg['price_breakout_min']*100) and vol_ratio >= ind_cfg['volume_spike_strong'] and close > ma200:
-        signal = "LONJAKAN_BELI"
-        confidence = "TINGGI"
-        desc = "Banyak yang borong saham ini, potensi naik lanjut."
+        signal = "VOLUME_BREAKOUT"
+        confidence = "HIGH"
+        desc = "Strong accumulation with price/volume breakout."
         
     # 5. BREAKDOWN (SELL) (HIGH)
     elif close < ma200 and prev_close > ma200 and vol_ratio > 1.3:
-        signal = "WASPADA_JUAL"
-        confidence = "TINGGI"
-        desc = "Harga jebol kebawah, tren mulai rusak/turun."
+        signal = "BEARISH_BREAKDOWN"
+        confidence = "HIGH"
+        desc = "Trend reversal below MA200. Bearish confirmation."
         if candle_pattern: desc += f" (Pola: {candle_pattern})"
         
     # 2. BUY ON DIP (MEDIUM-HIGH)
     elif (abs(close - ma50) / ma50) <= ind_cfg['price_dip_touch_ma50'] and rsi > 30 and close > ma200 and vol_ratio >= 0.9:
         if not is_downtrend_flag:
-            signal = "BELI_SAAT_DISKON"
-            confidence = "CUKUP_TINGGI"
-            desc = "Harga lagi murah, pas buat mulai cicil beli."
-            if candle_pattern: desc += f" (Pola: {candle_pattern})"
+            signal = "BUY_ON_DIP"
+            confidence = "MEDIUM-HIGH"
+            desc = "Healthy retracement near MA50 Support."
+            if candle_pattern: desc += f" (Pattern: {candle_pattern})"
             
     # 3. RSI OVERSOLD (MEDIUM)
     elif rsi < ind_cfg['rsi_oversold'] and close > ma200 and vol_ratio > ind_cfg['volume_spike_mild'] and drop_peak < (ind_cfg['price_drop_max']*100):
         if not is_downtrend_flag:
-            signal = "HARGA_DIBANTING"
-            confidence = "SEDANG"
-            desc = "Harga sudah jatuh terlalu dalam, ada potensi mantul."
-            if candle_pattern: desc += f" (Pola: {candle_pattern})"
+            signal = "RSI_OVERSOLD"
+            confidence = "MEDIUM"
+            desc = "Technically oversold on long-term uptrend."
+            if candle_pattern: desc += f" (Pattern: {candle_pattern})"
 
     # 4. POTENTIAL REBOUND (💎 MURAH & BERPOTENSI)
     elif (abs(close - ma200) / ma200) <= 0.03 and pct_1d > 0 and close > ma200:
-        signal = "POTENSI_MANTUL"
-        confidence = "TINGGI"
-        desc = "Harga nempel batas aman & mulai naik lagi. Murah!"
-        if candle_pattern: desc += f" (Pola: {candle_pattern})"
+        signal = "POTENTIAL_REBOUND"
+        confidence = "HIGH"
+        desc = "Support test near MA200 with bullish rejection."
+        if candle_pattern: desc += f" (Pattern: {candle_pattern})"
 
     # 5. RSI OVERBOUGHT (SELL) (MEDIUM)
     elif rsi > ind_cfg['rsi_overbought'] and pct_5d > (ind_cfg['price_rise_5day_min']*100) and vol_ratio < 1.0:
-        signal = "SIAGA_JUAL"
-        confidence = "SEDANG"
-        desc = "Harga sudah kemahalan, amankan profit dulu."
+        signal = "OVERBOUGHT_SIGNAL"
+        confidence = "MEDIUM"
+        desc = "RSI overextended. Profit taking recommended."
 
     # Status Compilation
     status_summary = {
@@ -224,7 +224,7 @@ def evaluate_signals(symbol, df, config):
         'vol_ratio': vol_ratio,
         'pct_1d': pct_1d,
         'pattern': candle_pattern,
-        'trend': 'NAIK (AMAN)' if close > ma200 else 'TURUN (WASPADA)'
+        'trend': 'BULLISH (UPTREND)' if close > ma200 else 'BEARISH (DOWNTREND)'
     }
 
     if signal:
@@ -289,70 +289,70 @@ def format_alert(signal_data):
     
     sym_name = s['symbol'].split('.')[0]
     
-    if sig in ["LONJAKAN_BELI", "BELI_SAAT_DISKON", "HARGA_DIBANTING", "POTENSI_MANTUL"]:
-        if sig == "LONJAKAN_BELI": icon = "🚨"
-        elif sig == "BELI_SAAT_DISKON": icon = "📍"
-        elif sig == "HARGA_DIBANTING": icon = "📉"
-        else: icon = "💎" # POTENSI_MANTUL
-        alert_title = f"{icon} SINYAL BELI - {sig.replace('_', ' ')}"
+    if sig in ["VOLUME_BREAKOUT", "BUY_ON_DIP", "RSI_OVERSOLD", "POTENTIAL_REBOUND"]:
+        if sig == "VOLUME_BREAKOUT": icon = "🚨"
+        elif sig == "BUY_ON_DIP": icon = "📍"
+        elif sig == "RSI_OVERSOLD": icon = "📉"
+        else: icon = "💎" # POTENTIAL_REBOUND
+        alert_title = f"{icon} BUY SIGNAL - {sig.replace('_', ' ')}"
     else:
-        icon = "🔴" if sig == "SIAGA_JUAL" else "🚨"
-        alert_title = f"{icon} SINYAL JUAL - {sig.replace('_', ' ')}"
+        icon = "🔴" if sig == "OVERBOUGHT_SIGNAL" else "🚨"
+        alert_title = f"{icon} SELL SIGNAL - {sig.replace('_', ' ')}"
         
     msg = f"*{alert_title}*\n\n"
-    msg += f"🏢 Saham: *{sym_name}*\n"
+    msg += f"🏢 Symbol: *{sym_name}*\n"
     
     pct_sign = "↑" if s['pct_1d'] > 0 else "↓"
-    msg += f"💵 Harga: {format_rp(s['close'])} ({pct_sign} {abs(s['pct_1d']):.1f}%)\n"
-    msg += f"📊 Ramai Transaksi: {format_vol(s['vol'])} (Naik {s['vol_ratio']*100:.0f}% dari biasa)\n"
+    msg += f"💵 Price: {format_rp(s['close'])} ({pct_sign} {abs(s['pct_1d']):.1f}%)\n"
+    msg += f"📊 Volume: {format_vol(s['vol'])} ({s['vol_ratio']*100:.0f}% of Avg)\n"
     
-    if sig == "BELI_SAAT_DISKON":
-        msg += f"📏 Batas Bawah: {format_rp(s['ma50'])}\n"
-    msg += f"📏 Harga Rata-rata 1 Thn: {format_rp(s['ma200'])}\n"
-    msg += f"📈 Posisi Harga (RSI): {s['rsi']:.1f} (Idealnya < 30)\n\n"
+    if sig == "BUY_ON_DIP":
+        msg += f"📏 Support MA50: {format_rp(s['ma50'])}\n"
+    msg += f"📏 Baseline MA200: {format_rp(s['ma200'])}\n"
+    msg += f"📈 Momentum RSI: {s['rsi']:.1f}\n\n"
     
-    msg += f"🎯 Keyakinan Sinyal: *{conf}*\n"
-    msg += f"💡 Analisa: {desc}\n"
+    msg += f"🎯 Conviction: *{conf}*\n"
+    msg += f"💡 Technical Insights: {desc}\n"
     
     return msg
 
 def format_status_report(all_stocks_status):
-    bullish_stocks = [s for s in all_stocks_status if s['trend'] == 'NAIK (AMAN)']
-    bearish_stocks = [s for s in all_stocks_status if s['trend'] == 'TURUN (WASPADA)']
+    bullish_stocks = [s for s in all_stocks_status if s['trend'] == 'BULLISH (UPTREND)']
+    bearish_stocks = [s for s in all_stocks_status if s['trend'] == 'BEARISH (DOWNTREND)']
     
     format_rp = lambda n: f"Rp {n:,.0f}".replace(',', '.')
     
-    msg = f"📊 *REKAP PASAR HARIAN - {datetime.now(TIMEZONE).strftime('%d %b %Y, %H:%M WIB')}*\n"
+    msg = f"📊 *MARKET STATUS REPORT - {datetime.now(TIMEZONE).strftime('%d %b %Y, %H:%M WIB')}*\n"
     msg += "="*40 + "\n\n"
     
     # BULLISH
-    msg += f"📈 *ARUS NAIK (Harga > Rata-rata 1 Thn):*\n"
+    msg += f"📈 *BULLISH ZONE (Price > MA200):*\n"
     for i, s in enumerate(bullish_stocks, 1):
         sym = s['symbol'].split('.')[0]
-        status = "MURAH" if s['rsi'] < 40 else "NORMAL"
-        pattern_txt = f" | Pola: {s['pattern']}" if s.get('pattern') else ""
-        msg += f"{i}. {sym} | {format_rp(s['close'])} | Jenuh: {s['rsi']:.0f} | Posisi: {status}{pattern_txt}\n"
+        status = "ACCUMULATION" if s['rsi'] < 40 else "STABLE"
+        pattern_txt = f" | Pattern: {s['pattern']}" if s.get('pattern') else ""
+        msg += f"{i}. {sym} | {format_rp(s['close'])} | RSI: {s['rsi']:.0f} | Status: {status}{pattern_txt}\n"
         if i >= 6:
-            msg += f"... [{len(bullish_stocks)-i} lebih]\n"
+            msg += f"... [{len(bullish_stocks)-i} more]\n"
             break
             
-    msg += "\n📉 *ARUS TURUN (Harga < Rata-rata 1 Thn):*\n"
+    msg += "\n📉 *BEARISH ZONE (Price < MA200):*\n"
     for i, s in enumerate(bearish_stocks, 1):
         sym = s['symbol'].split('.')[0]
-        pattern_txt = f" | Pola: {s['pattern']}" if s.get('pattern') else ""
-        msg += f"{i}. {sym} | {format_rp(s['close'])} | Jenuh: {s['rsi']:.0f} | Posisi: WASPADA{pattern_txt}\n"
+        pattern_txt = f" | Pattern: {s['pattern']}" if s.get('pattern') else ""
+        msg += f"{i}. {sym} | {format_rp(s['close'])} | RSI: {s['rsi']:.0f} | Status: BEARISH{pattern_txt}\n"
         if i >= 4:
-            msg += f"... [{len(bearish_stocks)-i} lebih]\n"
+            msg += f"... [{len(bearish_stocks)-i} more]\n"
             break
             
-    msg += "\n⚙️ *RINGKASAN:* \n"
-    msg += f"✓ Total Dipantau: {len(all_stocks_status)} Saham\n"
-    msg += f"✓ Kondisi Aman (Naik): {len(bullish_stocks)} Saham\n"
-    msg += f"✓ Kondisi Lemah (Turun): {len(bearish_stocks)} Saham\n\n"
+    msg += "\n⚙️ *SUMMARY:* \n"
+    msg += f"✓ Total Universe: {len(all_stocks_status)} Stocks\n"
+    msg += f"✓ Bullish Count: {len(bullish_stocks)}\n"
+    msg += f"✓ Bearish Count: {len(bearish_stocks)}\n\n"
     
-    msg += "📌 *KESIMPULAN:* \n"
-    msg += "• Kondisi Pasar: STABIL (Belum ada sinyal beli yang mendesak hari ini)\n"
-    msg += "• Sistem akan mengecek ulang di jadwal berikutnya.\n"
+    msg += "📌 *CONCLUSION:* \n"
+    msg += "• Overall Sentiment: NEUTRAL (No major breakouts detected)\n"
+    msg += "• Monitoring remains active for next session.\n"
     
     return msg
 
@@ -420,7 +420,7 @@ async def main():
                 'ma200': last_row[ma200_col],
                 'pct_1d': last_row['Pct_Change_1D'],
                 'pattern': candle_pattern,
-                'trend': 'NAIK (AMAN)' if last_row['Close'] > last_row[ma200_col] else 'TURUN (WASPADA)'
+                'trend': 'BULLISH (UPTREND)' if last_row['Close'] > last_row[ma200_col] else 'BEARISH (DOWNTREND)'
             })
 
             if signal_data:
