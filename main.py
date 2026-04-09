@@ -1,55 +1,22 @@
 import os
+import json
+import asyncio
+from datetime import datetime, timedelta
+import pytz
 import yfinance as yf
 import pandas as pd
 import pandas_ta as ta
 from telegram import Bot
-import asyncio
-import json
-from datetime import datetime, timedelta
-import pytz
 
-# Konfigurasi Default - Portfolio Monitoring
-STOCKS = [
-    # Banking & Finance (4 saham)
-    'BBCA.JK',  # BCA - Banking leader
-    'BMRI.JK',  # Bank Mandiri - Potensi rebound
-    'BRIS.JK',  # Bank Rakyat - Growth + dividen
-    'BBNI.JK',  # Bank Negara - Undervalued BUMN
-    
-    # Tech & E-Commerce (2 saham)
-    'GOTO.JK',  # GoTo - Recovery play
-    'BUKA.JK',  # Bukalapak - E-commerce turnaround
-    
-    # Consumer & Pharma (4 saham)
-    'UNVR.JK',  # Unilever - FMG leader, dividen
-    'INDF.JK',  # Indofood - Essential goods
-    'KAEF.JK',  # Kimia Farma - Pharma growth
-    'MERK.JK',  # Merck - Pharma stable
-    
-    # Utilities & Infrastructure (4 saham)
-    'TLKM.JK',  # Telkom - Telecom stable
-    'PGAS.JK',  # Gas Negara - Dividen tinggi
-    'WIKA.JK',  # Wika - Infrastructure (IKN project)
-    'PTBA.JK',  # Bukit Asam - Coal, dividen bagus
-    
-    # Cyclical (2 saham)
-    'ASII.JK',  # Astra - Auto/financing recovery
-    'UNTR.JK',  # United Tractors - Mining equipment
-]
 TIMEZONE = pytz.timezone('Asia/Jakarta')
+STATE_FILE = "last_signals.json"
 
-# Parameter Technical Indicators
-RSI_LENGTH = 14
-MA_FAST = 20
-MA_SHORT = 50
-MA_LONG = 200
-VOL_AVG_DAYS = 20
-
-# Telegram Config
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
-STATE_FILE = "last_signals.json"
+def load_config():
+    with open("config.json", "r") as f:
+        return json.load(f)
 
 def get_last_state():
     if os.path.exists(STATE_FILE):
@@ -57,7 +24,7 @@ def get_last_state():
             with open(STATE_FILE, 'r') as f:
                 return json.load(f)
         except:
-            return {}
+            pass
     return {}
 
 def save_state(state):
@@ -67,31 +34,7 @@ def save_state(state):
     except Exception as e:
         print(f"Gagal menyimpan state: {e}")
 
-def is_duplicate(symbol, signal_reason):
-    """Mencegah notifikasi duplikat untuk alasan yang persis sama dalam kurun waktu (< 1 jam)."""
-    state = get_last_state()
-    now = datetime.now(TIMEZONE)
-    
-    if symbol in state:
-        last_reason = state[symbol].get('reason')
-        last_time_str = state[symbol].get('time')
-        
-        if last_reason == signal_reason and last_time_str:
-            last_time = datetime.fromisoformat(last_time_str)
-            # Kalau alasan sinyal sama dan waktunya berdekatan (< 1 jam), drop
-            if now - last_time < timedelta(hours=1):
-                return True
-                
-    # Update state jika bukan duplikat
-    state[symbol] = {
-        'reason': signal_reason,
-        'time': now.isoformat()
-    }
-    save_state(state)
-    return False
-
-def fetch_data(symbol):
-    """Ambil data harga saham 1 tahun terakhir dengan interval daily."""
+def fetch_data(symbol, config):
     print(f"[{symbol}] Mengambil data...")
     try:
         stock = yf.Ticker(symbol)
@@ -99,190 +42,315 @@ def fetch_data(symbol):
         if df.empty:
             print(f"[{symbol}] Data kosong!")
             return None
+            
+        # Get peak price for looking back
+        lookback = config['signals']['price_peak_lookback_days']
+        if len(df) >= lookback:
+            df['Peak_Price'] = df['High'].rolling(window=lookback, min_periods=1).max()
+        else:
+            df['Peak_Price'] = df['High'].rolling(window=len(df), min_periods=1).max()
+            
         return df
     except Exception as e:
         print(f"[{symbol}] Gagal mengambil data: {e}")
         return None
 
-def calculate_indicators(df):
-    """Hitung RSI, MA20, MA50, MA200, Pct Change dan Rata-rata Volume."""
-    # Pastikan data terurut
+def calculate_indicators(df, config):
+    ind_cfg = config['indicators']
     df = df.sort_index()
     
-    # RSI & Momentum
-    df.ta.rsi(length=RSI_LENGTH, append=True)
-    df['Pct_Change'] = df['Close'].pct_change() * 100
+    # RSI
+    df.ta.rsi(length=ind_cfg['rsi_length'], append=True)
+    df['Pct_Change_1D'] = df['Close'].pct_change() * 100
+    df['Pct_Change_5D'] = df['Close'].pct_change(periods=5) * 100
     
-    # Moving Averages
-    df.ta.sma(length=MA_FAST, append=True)
-    df.ta.sma(length=MA_SHORT, append=True)
-    df.ta.sma(length=MA_LONG, append=True)
+    # Drops from Peak
+    df['Drop_From_Peak_Pct'] = ((df['Peak_Price'] - df['Close']) / df['Peak_Price']) * 100
     
-    # Volume Rata-rata 20 hari
-    df['Vol_Avg_20'] = df['Volume'].rolling(window=VOL_AVG_DAYS).mean()
+    # MA
+    df.ta.sma(length=ind_cfg['ma_short'], append=True)
+    df.ta.sma(length=ind_cfg['ma_long'], append=True)
+    
+    # Volume Rata-rata
+    df['Vol_Avg'] = df['Volume'].rolling(window=ind_cfg['volume_avg_period']).mean()
     
     return df
 
-def generate_signals(symbol, df):
-    """Memeriksa kondisi yang Relaxed/Santai: Golden Cross, Trend Dip, Volume Breakout."""
-    # Butuh minimal 2 hari berturut-turut untuk mengecek Crossover (Perpotongan GARIS MA)
-    if len(df) < 2:
-        return None
-        
-    last_row = df.iloc[-1]
-    prev_row = df.iloc[-2]
+def is_downtrend(df, config):
+    # Check if close < MA200 for N consecutive days
+    days = config['signals']['ignore_downtrend_days']
+    if len(df) < days: return False
     
-    close = last_row['Close']
-    change = last_row['Pct_Change']
-    volume = last_row['Volume']
+    ma200_col = f"SMA_{config['indicators']['ma_long']}"
+    for i in range(1, days + 1):
+        row = df.iloc[-i]
+        if row['Close'] >= row[ma200_col]:
+            return False
+    return True
+
+def check_cooldown(symbol, signal_type, state, config):
+    now = datetime.now(TIMEZONE)
+    if symbol in state:
+        last_sig = state[symbol].get('signal')
+        last_time_str = state[symbol].get('time')
+        if last_sig == signal_type and last_time_str:
+            last_time = datetime.fromisoformat(last_time_str)
+            if now - last_time < timedelta(hours=config['signals']['signal_cooldown_hours']):
+                return True
+    return False
+
+def evaluate_signals(symbol, df, config):
+    last_row = df.iloc[-1]
+    prev_row = df.iloc[-2] if len(df) > 1 else last_row
+    
+    ind_cfg = config['indicators']
+    ma50_col = f"SMA_{ind_cfg['ma_short']}"
+    ma200_col = f"SMA_{ind_cfg['ma_long']}"
+    rsi_col = f"RSI_{ind_cfg['rsi_length']}"
     
     try:
-        rsi = last_row[f'RSI_{RSI_LENGTH}']
-        
-        curr_ma20 = last_row[f'SMA_{MA_FAST}']
-        prev_ma20 = prev_row[f'SMA_{MA_FAST}']
-        
-        curr_ma50 = last_row[f'SMA_{MA_SHORT}']
-        prev_ma50 = prev_row[f'SMA_{MA_SHORT}']
-        
-        ma200 = last_row[f'SMA_{MA_LONG}']
+        close = last_row['Close']
+        prev_close = prev_row['Close']
+        volume = last_row['Volume']
+        vol_avg = last_row['Vol_Avg']
+        rsi = last_row[rsi_col]
+        ma50 = last_row[ma50_col]
+        ma200 = last_row[ma200_col]
+        pct_1d = last_row['Pct_Change_1D']
+        pct_5d = last_row['Pct_Change_5D']
+        drop_peak = last_row['Drop_From_Peak_Pct']
     except KeyError:
-        print(f"[{symbol}] History data kurang panjang.")
-        return None
+        return None, "Indikator belum lengkap."
+        
+    if pd.isna(rsi) or pd.isna(ma50) or pd.isna(ma200) or pd.isna(vol_avg) or vol_avg == 0:
+        return None, "Data NaN"
 
-    vol_avg = last_row['Vol_Avg_20']
+    vol_ratio = volume / vol_avg
+    is_downtrend_flag = is_downtrend(df, config)
     
-    if pd.isna(rsi) or pd.isna(curr_ma50) or pd.isna(vol_avg):
-        return None
+    # RULE 1: Noise Filter
+    if abs(pct_1d) < (ind_cfg['price_breakout_min']*100) and vol_ratio < ind_cfg['volume_spike_mild']:
+        return None, "NOISE"
         
-    signal_type = None
-    reason = None
+    signal = None
     confidence = None
+    desc = None
     
-    # --- LOGIKA BUY ---
+    # SIGNALS 
     
-    # 1. GOLDEN CROSS (Momentum Uptrend Awal)
-    if prev_ma20 < prev_ma50 and curr_ma20 > curr_ma50:
-        signal_type = "BUY"
-        reason = "Golden Cross (MA20 tembus MA50 ke atas) 🟢"
+    # 1. VOLUME BREAKOUT (HIGH)
+    if pct_1d >= (ind_cfg['price_breakout_min']*100) and vol_ratio >= ind_cfg['volume_spike_strong'] and close > ma200:
+        signal = "VOLUME_BREAKOUT"
         confidence = "HIGH"
+        desc = "Institusi/Bandar kemungkinan sedang masuk."
         
-    # 2. VOLUME BREAKOUT (Ada institusi/Big Money borong)
-    elif change > 2.0 and volume > (2.0 * vol_avg):
-        signal_type = "BUY"
-        reason = "Volume Breakout! Harga naik > 2% diiringi ledakan volume 🚀"
-        confidence = "MEDIUM"
-        
-    # 3. BUY ON DIP (Koreksi sementara di atas MA50)
-    # Harga turun perlahan, RSI < 45, dan harga sedang menempel di sekitar MA50 (Batas selisih 2%)
-    elif rsi < 45 and (abs(close - curr_ma50) / curr_ma50 < 0.02) and close > ma200:
-        signal_type = "BUY"
-        reason = "Buy on Dip! Mendekati zona Support MA50 🛒"
-        confidence = "MEDIUM"
-        
-    # --- LOGIKA SELL ---
-    
-    # 4. DEATH CROSS (Momentum Jatuh)
-    elif prev_ma20 > prev_ma50 and curr_ma20 < curr_ma50:
-        signal_type = "SELL"
-        reason = "Death Cross (MA20 terjun tembus MA50 ke bawah) 🩸"
+    # 5. BREAKDOWN (SELL) (HIGH)
+    elif close < ma200 and prev_close > ma200 and vol_ratio > 1.3:
+        signal = "BREAKDOWN"
         confidence = "HIGH"
+        desc = "Trend reversal, break below MA200."
         
-    # 5. TAKE PROFIT / CUT LOSS (Overbought ekstrem atau kepanikan volume jual)
-    elif rsi > 75 or (change < -3.0 and volume > (1.5 * vol_avg)):
-        signal_type = "SELL"
-        reason = "Siaga! Saham Super Overbought atau Dibanting ⚠️"
+    # 2. BUY ON DIP (MEDIUM-HIGH)
+    elif (abs(close - ma50) / ma50) <= ind_cfg['price_dip_touch_ma50'] and rsi > 30 and close > ma200 and vol_ratio >= 0.9:
+        if not is_downtrend_flag:
+            signal = "BUY_ON_DIP"
+            confidence = "MEDIUM-HIGH"
+            desc = "Support MA50 ditest, koreksi sehat."
+            
+    # 3. RSI OVERSOLD (MEDIUM)
+    elif rsi < ind_cfg['rsi_oversold'] and close > ma200 and vol_ratio > ind_cfg['volume_spike_mild'] and drop_peak < (ind_cfg['price_drop_max']*100):
+        if not is_downtrend_flag:
+            signal = "RSI_OVERSOLD"
+            confidence = "MEDIUM"
+            desc = "Kondisi teknikal oversold di jalur Uptrend."
+
+    # 4. POTENTIAL REBOUND (💎 MURAH & BERPOTENSI)
+    # Harga nempel MA200 + Ada tanda perlawanan (pct_1d > 0)
+    elif (abs(close - ma200) / ma200) <= 0.03 and pct_1d > 0 and close > ma200:
+        signal = "POTENTIAL_REBOUND"
+        confidence = "HIGH"
+        desc = "Saham di area Support kuat MA200 (Murah) & mulai ada pantulan!"
+
+    # 4. RSI OVERBOUGHT (SELL) (MEDIUM)
+    elif rsi > ind_cfg['rsi_overbought'] and pct_5d > (ind_cfg['price_rise_5day_min']*100) and vol_ratio < 1.0:
+        signal = "RSI_OVERBOUGHT"
         confidence = "MEDIUM"
-        
-    if not signal_type:
-        return None
-        
-    return {
+        desc = "Rentan koreksi (Overbought), pertimbangkan taking profit."
+
+    # Status Compilation
+    status_summary = {
         'symbol': symbol,
-        'signal': signal_type,
-        'reason': reason,
-        'confidence': confidence,
         'close': close,
-        'pct_change': change,
         'rsi': rsi,
-        'ma20': curr_ma20,
-        'ma50': curr_ma50,
         'ma200': ma200,
-        'volume': volume,
-        'vol_avg': vol_avg,
-        'time': df.index[-1] # the timestamp
+        'ma50': ma50,
+        'vol': volume,
+        'vol_ratio': vol_ratio,
+        'pct_1d': pct_1d,
+        'trend': 'BULLISH' if close > ma200 else 'BEARISH'
     }
 
-def format_message(data):
-    """Format pesan Telegram notifikasi."""
-    sym = data['symbol'].replace('.JK', '')
-    sig = data['signal']
-    reason = data['reason']
-    close = data['close']
-    pct = data['pct_change']
-    vol = data['volume']
-    vol_avg = data['vol_avg']
-    rsi = data['rsi']
+    if signal:
+        result = {
+            'type': signal,
+            'confidence': confidence,
+            'desc': desc,
+            'data': status_summary
+        }
+        return result, "SIGNAL_DETECTED"
     
-    vol_pct = (vol / vol_avg * 100) if vol_avg > 0 else 0
-    
-    # Helper formatters
-    format_rupiah = lambda n: f"Rp {n:,.0f}".replace(',', '.')
-    
-    def format_volume(num):
-        if num >= 1_000_000: return f"{num/1_000_000:.1f}M"
-        if num >= 1_000: return f"{num/1_000:.1f}K"
-        return str(int(num))
+    return None, "HOLD"
 
-    pct_str = f"📈 +{pct:.1f}%" if pct > 0 else f"📉 {pct:.1f}%"
+def format_alert(signal_data):
+    s = signal_data['data']
+    sig = signal_data['type']
+    conf = signal_data['confidence']
+    desc = signal_data['desc']
     
-    msg = f"*{sig} ALERT - {sym}* {pct_str}\n"
-    msg += f"💡 *Reason:* {reason}\n\n"
-    msg += f"💵 Harga: {format_rupiah(close)}\n"
-    msg += f"📊 Volume: {format_volume(vol)} (↑{vol_pct:.0f}% vs Avg)\n"
-    msg += f"📈 RSI(14): {rsi:.1f}\n"
-    msg += f"📏 MA20: {format_rupiah(data['ma20'])} \\| MA50: {format_rupiah(data['ma50'])}\n\n"
+    format_rp = lambda n: f"Rp {n:,.0f}".replace(',', '.')
+    format_vol = lambda n: f"{n/1_000_000:.1f}M" if n >= 1e6 else f"{n/1_000:.1f}K"
     
-    now_str = datetime.now(TIMEZONE).strftime('%d %b %Y %H:%M')
-    msg += f"⏳ {now_str}"
+    sym_name = s['symbol'].split('.')[0]
+    
+    if sig in ["VOLUME_BREAKOUT", "BUY_ON_DIP", "RSI_OVERSOLD", "POTENTIAL_REBOUND"]:
+        if sig == "VOLUME_BREAKOUT": icon = "🚨"
+        elif sig == "BUY_ON_DIP": icon = "📍"
+        elif sig == "RSI_OVERSOLD": icon = "📉"
+        else: icon = "💎" # POTENTIAL_REBOUND
+        alert_title = f"{icon} BUY SIGNAL - {sig.replace('_', ' ')}"
+    else:
+        icon = "🔴" if sig == "RSI_OVERBOUGHT" else "🚨"
+        alert_title = f"{icon} SELL SIGNAL - {sig.replace('_', ' ')}"
+        
+    msg = f"*{alert_title}*\n\n"
+    msg += f"🏢 Saham: *{sym_name}*\n"
+    
+    pct_sign = "↑" if s['pct_1d'] > 0 else "↓"
+    msg += f"💵 Harga: {format_rp(s['close'])} ({pct_sign} {abs(s['pct_1d']):.1f}%)\n"
+    msg += f"📊 Volume: {format_vol(s['vol'])} (↑ {s['vol_ratio']*100:.0f}% vs Avg)\n"
+    
+    if sig == "BUY_ON_DIP":
+        msg += f"📏 MA-50: {format_rp(s['ma50'])}\n"
+    msg += f"📏 MA-200: {format_rp(s['ma200'])}\n"
+    msg += f"📈 RSI(14): {s['rsi']:.1f}\n\n"
+    
+    msg += f"🎯 Confidence: *{conf}*\n"
+    msg += f"💡 Insight: {desc}\n"
     
     return msg
 
-async def send_telegram_notification(message):
-    """Kirim notifikasi ke Telegram dengan Markdown parse mode v2 (fallback to original logic)."""
+def format_status_report(all_stocks_status):
+    bullish_stocks = [s for s in all_stocks_status if s['trend'] == 'BULLISH']
+    bearish_stocks = [s for s in all_stocks_status if s['trend'] == 'BEARISH']
+    
+    format_rp = lambda n: f"Rp {n:,.0f}".replace(',', '.')
+    
+    msg = f"📊 *DAILY MARKET SCAN - {datetime.now(TIMEZONE).strftime('%d %b %Y, %H:%M WIB')}*\n"
+    msg += "="*40 + "\n\n"
+    
+    # BULLISH
+    msg += f"📈 *BULLISH ZONE (Price > MA200):*\n"
+    for i, s in enumerate(bullish_stocks, 1):
+        sym = s['symbol'].split('.')[0]
+        status = "Near OS" if s['rsi'] < 40 else "HOLD"
+        msg += f"{i}. {sym} | {format_rp(s['close'])} | RSI {s['rsi']:.0f} | Status: {status}\n"
+        if i >= 6:
+            msg += f"... [{len(bullish_stocks)-i} lebih]\n"
+            break
+            
+    msg += "\n📉 *BEARISH ZONE (Price < MA200):*\n"
+    for i, s in enumerate(bearish_stocks, 1):
+        sym = s['symbol'].split('.')[0]
+        status = "Downtrend"
+        msg += f"{i}. {sym} | {format_rp(s['close'])} | RSI {s['rsi']:.0f} | Status: CAUTION\n"
+        if i >= 4:
+            msg += f"... [{len(bearish_stocks)-i} lebih]\n"
+            break
+            
+    msg += "\n⚙️ *ALERTS SUMMARY:*\n"
+    msg += f"✓ Total Monitored: {len(all_stocks_status)} saham\n"
+    msg += f"✓ Bullish (>MA200): {len(bullish_stocks)} saham\n"
+    msg += f"✓ Bearish (<MA200): {len(bearish_stocks)} saham\n\n"
+    
+    msg += "📌 *INSIGHTS:*\n"
+    msg += "• Market condition: NEUTRAL (No high-conviction signals found today)\n"
+    msg += "• Sistem akan monitoring ulang di sesi berikutnya.\n"
+    
+    return msg
+
+async def send_telegram(message):
     if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
-        print("Telegram Config (Token/Chat ID) hilang. Skipping send.")
+        print("Telegram Token missing. Log:\n", message)
         return
         
     try:
         bot = Bot(token=TELEGRAM_BOT_TOKEN)
         await bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=message, parse_mode='Markdown')
-        print(f"Notifikasi berhasil dikirim!")
+        print("Telegram dikirim!")
     except Exception as e:
-        print(f"Gagal mengirim notifikasi: {e}")
+        print(f"Gagal kirim telegram: {e}")
 
 async def main():
-    print(f"=== Stock Notifier (LITE MODE) ({datetime.now(TIMEZONE).strftime('%Y-%m-%d %H:%M')}) ===")
+    print(f"=== Stock Notifier (V3 SMART FILTER) ({datetime.now(TIMEZONE).strftime('%Y-%m-%d %H:%M')}) ===")
+    config = load_config()
+    state = get_last_state()
     
-    for symbol in STOCKS:
-        df = fetch_data(symbol)
+    signals_sent_today = []
+    all_stocks_status = []
+    
+    for symbol in config['stocks']:
+        df = fetch_data(symbol, config)
         if df is None: continue
             
-        df = calculate_indicators(df)
-        signal_data = generate_signals(symbol, df)
+        df = calculate_indicators(df, config)
+        
+        signal_data, reason = evaluate_signals(symbol, df, config)
         
         if signal_data:
-            print(f"[{symbol}] => {signal_data['signal']} ({signal_data['reason']})")
+            all_stocks_status.append(signal_data['data'])
             
-            if is_duplicate(symbol, signal_data['reason']):
-                print(f"  -> Skipped (duplikat dalam 1 jam)")
+            sig_type = signal_data['type']
+            if check_cooldown(symbol, sig_type, state, config):
+                print(f"[{symbol}] Alert '{sig_type}' distop (Cooldown < 6 jam)")
                 continue
                 
-            msg = format_message(signal_data)
-            await send_telegram_notification(msg)
-        else:
-            print(f"[{symbol}] => HOLD")
+            msg = format_alert(signal_data)
+            await send_telegram(msg)
+            signals_sent_today.append(symbol)
             
+            # Save State
+            state[symbol] = {
+                'signal': sig_type,
+                'time': datetime.now(TIMEZONE).isoformat()
+            }
+        elif reason == "HOLD":
+            # For status report
+            last_row = df.iloc[-1]
+            ma200_col = f"SMA_{config['indicators']['ma_long']}"
+            all_stocks_status.append({
+                'symbol': symbol,
+                'close': last_row['Close'],
+                'rsi': last_row[f"RSI_{config['indicators']['rsi_length']}"],
+                'ma200': last_row[ma200_col],
+                'trend': 'BULLISH' if last_row['Close'] > last_row[ma200_col] else 'BEARISH'
+            })
+            print(f"[{symbol}] HOLD / No Signal")
+        else:
+            print(f"[{symbol}] Filtered: {reason}")
+            
+            
+    # Send status report only if requested, no alerts were fired, AND it is 6 PM (18:00)
+    now = datetime.now(TIMEZONE)
+    if len(signals_sent_today) == 0 and config['signals']['send_status_report_if_no_alerts']:
+        if now.hour == 18: # Hanya pukul 18:00 WIB
+            if len(all_stocks_status) > 0:
+                print(f"\n>> Pukul {now.hour}:00 WIB. Mengirim Report Harian...")
+                report = format_status_report(all_stocks_status)
+                await send_telegram(report)
+        else:
+            print(f"\n>> Sesi pukul {now.hour}:00 WIB: Tidak ada sinyal & bukan jadwal report harian.")
+            
+    save_state(state)
     print("=== Pengecekan Selesai ===")
 
 if __name__ == "__main__":

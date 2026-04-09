@@ -1,0 +1,37 @@
+{
+  "stocks": [
+    "BBCA.JK", "BMRI.JK", "BRIS.JK", "BBNI.JK",
+    "GOTO.JK", "BUKA.JK",
+    "UNVR.JK", "INDF.JK", "KAEF.JK", "MERK.JK",
+    "TLKM.JK", "PGAS.JK", "WIKA.JK", "PTBA.JK",
+    "ASII.JK", "UNTR.JK"
+  ],
+
+  "indicators": {
+    "rsi_length": 14,
+    "rsi_oversold": 30,
+    "rsi_overbought": 70,
+    "ma_short": 50,
+    "ma_long": 200,
+    "volume_avg_period": 20,
+    "volume_spike_mild": 1.2,
+    "volume_spike_normal": 1.5,
+    "volume_spike_strong": 2.0,
+    "price_breakout_min": 0.02,
+    "price_dip_touch_ma50": 0.02,
+    "price_rise_5day_min": 0.10,
+    "price_drop_max": 0.15
+  },
+
+  "signals": {
+    "signal_cooldown_hours": 6,
+    "send_status_report_if_no_alerts": true,
+    "ignore_downtrend_days": 3,
+    "price_peak_lookback_days": 90
+  },
+
+  "telegram": {
+    "use_emoji": true,
+    "status_report_format": "detailed"
+  }
+}
