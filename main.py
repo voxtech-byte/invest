@@ -278,6 +278,29 @@ def format_status_report(all_stocks_status):
     
     return msg
 
+def format_mini_report(all_stocks_status):
+    now_str = datetime.now(TIMEZONE).strftime('%H:%M WIB')
+    
+    bullish_count = len([s for s in all_stocks_status if s['trend'] == 'BULLISH'])
+    bearish_count = len([s for s in all_stocks_status if s['trend'] == 'BEARISH'])
+    
+    # Sort for movers
+    movers = sorted(all_stocks_status, key=lambda x: x.get('pct_1d', 0) if x.get('pct_1d') is not None else 0, reverse=True)
+    top_mover = movers[0] if movers else None
+    laggard = movers[-1] if movers else None
+    
+    msg = f"📡 *Quick Scan - {now_str}*\n"
+    msg += f"────────────────\n"
+    msg += f"✅ Bullish: {bullish_count} | ❌ Bearish: {bearish_count}\n"
+    
+    if top_mover:
+        msg += f"🔥 Top: {top_mover['symbol'].split('.')[0]} (+{top_mover['pct_1d']:.1f}%)\n"
+    if laggard:
+        msg += f"❄️ Low: {laggard['symbol'].split('.')[0]} ({laggard['pct_1d']:.1f}%)\n"
+        
+    msg += f"\n💡 *Status:* Kondisi Stabil (Belum ada sinyal tembus). Next scan di sesi berikutnya."
+    return msg
+
 async def send_telegram(message):
     if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
         print("Telegram Token missing. Log:\n", message)
@@ -339,16 +362,18 @@ async def main():
             print(f"[{symbol}] Filtered: {reason}")
             
             
-    # Send status report only if requested, no alerts were fired, AND it is 6 PM (18:00)
+    # Send report if no signals were fired
     now = datetime.now(TIMEZONE)
     if len(signals_sent_today) == 0 and config['signals']['send_status_report_if_no_alerts']:
-        if now.hour == 18: # Hanya pukul 18:00 WIB
-            if len(all_stocks_status) > 0:
-                print(f"\n>> Pukul {now.hour}:00 WIB. Mengirim Report Harian...")
+        if len(all_stocks_status) > 0:
+            if now.hour == 18:
+                print(f"\n>> Pukul {now.hour}:00 WIB. Mengirim Report Harian Lengkap...")
                 report = format_status_report(all_stocks_status)
-                await send_telegram(report)
-        else:
-            print(f"\n>> Sesi pukul {now.hour}:00 WIB: Tidak ada sinyal & bukan jadwal report harian.")
+            else:
+                print(f"\n>> Pukul {now.hour}:00 WIB. Mengirim Mini Report...")
+                report = format_mini_report(all_stocks_status)
+                
+            await send_telegram(report)
             
     save_state(state)
     print("=== Pengecekan Selesai ===")

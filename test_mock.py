@@ -70,15 +70,27 @@ def simulate_breakdown():
     return format_alert(data)
 
 def simulate_status_report():
-    print("--- Simulating DAILY STATUS REPORT ---")
+    print("--- Simulating DAILY STATUS REPORT (6 PM) ---")
     all_stocks_status = [
-        {'symbol': 'BBCA.JK', 'close': 10450, 'rsi': 45, 'ma200': 10100, 'trend': 'BULLISH'},
-        {'symbol': 'BMRI.JK', 'close': 7200, 'rsi': 28, 'ma200': 7100, 'trend': 'BULLISH'},
-        {'symbol': 'BRIS.JK', 'close': 4950, 'rsi': 32, 'ma200': 4800, 'trend': 'BULLISH'},
-        {'symbol': 'BBNI.JK', 'close': 3850, 'rsi': 22, 'ma200': 3950, 'trend': 'BEARISH'},
-        {'symbol': 'PTBA.JK', 'close': 14200, 'rsi': 25, 'ma200': 14800, 'trend': 'BEARISH'}
+        {'symbol': 'BBCA.JK', 'close': 10450, 'rsi': 45, 'ma200': 10100, 'trend': 'BULLISH', 'pct_1d': 0.5},
+        {'symbol': 'BMRI.JK', 'close': 7200, 'rsi': 28, 'ma200': 7100, 'trend': 'BULLISH', 'pct_1d': 1.2},
+        {'symbol': 'BRIS.JK', 'close': 4950, 'rsi': 32, 'ma200': 4800, 'trend': 'BULLISH', 'pct_1d': -0.2},
+        {'symbol': 'BBNI.JK', 'close': 3850, 'rsi': 22, 'ma200': 3950, 'trend': 'BEARISH', 'pct_1d': -1.5},
+        {'symbol': 'PTBA.JK', 'close': 14200, 'rsi': 25, 'ma200': 14800, 'trend': 'BEARISH', 'pct_1d': 0.1}
     ]
     return format_status_report(all_stocks_status)
+
+def simulate_mini_report():
+    from main import format_mini_report
+    print("--- Simulating MINI REPORT (Quick Scan) ---")
+    all_stocks_status = [
+        {'symbol': 'BBCA.JK', 'trend': 'BULLISH', 'pct_1d': 0.5},
+        {'symbol': 'BMRI.JK', 'trend': 'BULLISH', 'pct_1d': 1.2},
+        {'symbol': 'BRIS.JK', 'trend': 'BULLISH', 'pct_1d': -0.2},
+        {'symbol': 'BBNI.JK', 'trend': 'BEARISH', 'pct_1d': -1.5},
+        {'symbol': 'PTBA.JK', 'trend': 'BEARISH', 'pct_1d': 0.1}
+    ]
+    return format_mini_report(all_stocks_status)
 
 def simulate_potential_rebound():
     print("--- Simulating POTENTIAL_REBOUND (💎 CHEAP & POTENTIAL) ---")
@@ -102,7 +114,7 @@ def simulate_potential_rebound():
 
 async def run_test():
     parser = argparse.ArgumentParser(description="V3 Stock Notifier Mock Test")
-    parser.add_argument('--type', choices=['breakout', 'dip', 'breakdown', 'report', 'rebound'], default='breakout', help="Type of signal to test")
+    parser.add_argument('--type', choices=['breakout', 'dip', 'breakdown', 'report', 'rebound', 'mini'], default='breakout', help="Type of signal to test")
     parser.add_argument('--send-telegram', action='store_true', help="Send real Telegram notification")
     args = parser.parse_args()
 
@@ -115,6 +127,8 @@ async def run_test():
         message = simulate_breakdown()
     elif args.type == 'report':
         message = simulate_status_report()
+    elif args.type == 'mini':
+        message = simulate_mini_report()
     elif args.type == 'rebound':
         message = simulate_potential_rebound()
 
