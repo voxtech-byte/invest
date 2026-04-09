@@ -1,0 +1,5 @@
+yfinance>=0.2.36
+pandas>=2.2.0
+pandas-ta>=0.4.67b0
+python-telegram-bot>=21.0.1
+pytz>=2024.1
