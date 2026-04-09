@@ -408,6 +408,7 @@ async def main():
         if df is not None:
             df = calculate_indicators(df, config)
             signal_data, reason = evaluate_signals(symbol, df, config)
+            candle_pattern = detect_candles(df)
             
             # Selalu masukkan ke status report jika data berhasil ditarik
             last_row = df.iloc[-1]
