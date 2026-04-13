@@ -121,8 +121,16 @@ def calculate_indicators(df, config):
     # MACD
     df.ta.macd(fast=ind_cfg['macd_fast'], slow=ind_cfg['macd_slow'], signal=ind_cfg['macd_signal'], append=True)
     
-    # Bollinger Bands
+    # Bollinger Bands & Squeeze Logic
     df.ta.bbands(length=ind_cfg['bb_period'], std=ind_cfg['bb_std'], append=True)
+    bb_upper = df[f"BBU_{ind_cfg['bb_period']}_{ind_cfg['bb_std']}"]
+    bb_lower = df[f"BBL_{ind_cfg['bb_period']}_{ind_cfg['bb_std']}"]
+    df['BB_Width'] = (bb_upper - bb_lower) / df[f"BBM_{ind_cfg['bb_period']}_{ind_cfg['bb_std']}"]
+    
+    # Advanced Intelligence Indicators (BEE-FLOW Proxy)
+    df.ta.vpt(append=True) # Volume Price Trend
+    df.ta.obv(append=True) # On-Balance Volume
+    df.ta.cmf(length=20, append=True) # Chaikin Money Flow
     
     # ATR (Average True Range) — for SL/TP calculation
     df.ta.atr(length=ind_cfg['atr_period'], append=True)
@@ -182,6 +190,81 @@ def detect_candles(df):
         patterns.append("Bullish Engulfing")
         
     return ", ".join(patterns) if patterns else ""
+
+# ============================================================
+# MARKET INTELLIGENCE ENGINE (V6 — BEE-FLOW & WYCKOFF)
+# ============================================================
+
+def detect_wyckoff_phase(df):
+    """
+    Detect the market cycle phase based on Wyckoff theory proxies.
+    Accumulation, Markup, Distribution, Markdown.
+    """
+    if len(df) < 50: return "UNKNOWN"
+    
+    last = df.iloc[-1]
+    prev_20 = df.iloc[-20]
+    
+    ma50 = last.get('SMA_50', 0)
+    ma200 = last.get('SMA_200', 0)
+    close = last['Close']
+    
+    # 1. MARKUP (Uptrend)
+    if close > ma50 > ma200 and ma50 > prev_20.get('SMA_50', 0):
+        return "MARKUP (Strong Trend)"
+    
+    # 2. MARKDOWN (Downtrend)
+    if close < ma50 < ma200:
+        return "MARKDOWN (Stay Away)"
+        
+    # 3. ACCUMULATION (Sideways at bottom)
+    if ma50 < ma200 and abs(close - ma50)/ma50 < 0.05:
+        # Check volume trend (Low volume or starting to spike on green candles)
+        return "ACCUMULATION (Smart Money Buying)"
+        
+    # 4. DISTRIBUTION (Sideways at top)
+    if close > ma200 and abs(close - ma50)/ma50 < 0.05 and last['Pct_Change_5D'] < 0:
+        return "DISTRIBUTION (Institutions Selling)"
+        
+    return "CONSOLIDATION (Neutral)"
+
+def calculate_bee_flow(df):
+    """
+    Simulate 'Broker Intelligence' (BEE-FLOW) using VPA.
+    Returns Score (0-10) and Label.
+    """
+    if len(df) < 20: return 0, "NEUTRAL"
+    
+    last = df.iloc[-1]
+    vpt = last.get('VPT', 0)
+    cmf = last.get('CMF', 0)
+    vol_ratio = last.get('Vol_Avg', 1) 
+    vol_ratio = last['Volume'] / vol_ratio if vol_ratio > 0 else 1
+    
+    score = 0
+    
+    # CMF: Institutional pressure (Positive is good)
+    if cmf > 0.2: score += 4
+    elif cmf > 0: score += 2
+    
+    # VPT: Trend strength corroborated by volume
+    if vpt > df['VPT'].iloc[-5:].mean(): score += 3
+    
+    # Volume/Price divergence check
+    if last['Pct_Change_1D'] > 0 and vol_ratio > 1.5:
+        score += 3 # Professional Accumulation
+    elif last['Pct_Change_1D'] < 0 and vol_ratio > 1.5:
+        score -= 4 # Institutional Dumping
+        
+    # Normalize score 0-10
+    final_score = max(0, min(10, score))
+    
+    if final_score >= 8: label = "HIGH ACCUMULATION (BIG BEE)"
+    elif final_score >= 6: label = "MILD ACCUMULATION"
+    elif final_score <= 3: label = "DISTRIBUTION (EXITING)"
+    else: label = "NEUTRAL"
+    
+    return final_score, label
 
 def get_volume_context(pct_1d, vol_ratio):
     """Determine volume pattern meaning"""
@@ -256,9 +339,35 @@ def evaluate_signals(symbol, df, config):
     candle_pattern = detect_candles(df)
     vol_context = get_volume_context(pct_1d, vol_ratio)
     
+    # NEW V6: Market Intelligence
+    wyckoff_phase = detect_wyckoff_phase(df)
+    bee_score, bee_label = calculate_bee_flow(df)
+    
+    # Squeeze Detection
+    bb_width = last_row.get('BB_Width', 1.0)
+    is_squeeze = bb_width < (df['BB_Width'].tail(20).mean() * 0.8)
+
     # ========== SCORING: BUY side ==========
     buy_score = 0
     buy_layers = {}
+    
+    # BEE-FLOW Bonus (Institutional Confirmation)
+    if bee_score >= 7:
+        buy_score += 1.5
+        buy_layers['BEE-FLOW'] = f"Institutional Accumulation ({bee_score}/10)"
+    elif bee_score >= 5:
+        buy_score += 0.5
+        buy_layers['BEE-FLOW'] = "Mild Bee Flow"
+
+    # Wyckoff Bonus
+    if "ACCUMULATION" in wyckoff_phase or "MARKUP" in wyckoff_phase:
+        buy_score += 1
+        buy_layers['Phase'] = wyckoff_phase
+
+    # Squeeze Bonus
+    if is_squeeze:
+        buy_score += 0.5
+        buy_layers['Volatility'] = "Squeeze (High Potential)"
     
     if rsi < ind_cfg['rsi_oversold']:
         buy_score += 1
@@ -414,6 +523,10 @@ def evaluate_signals(symbol, df, config):
         'pct_1d': pct_1d,
         'pattern': candle_pattern,
         'vol_context': vol_context,
+        'wyckoff_phase': wyckoff_phase,
+        'bee_score': bee_score,
+        'bee_label': bee_label,
+        'is_squeeze': is_squeeze,
         'macd_hist': macd_hist if macd_hist is not None and not pd.isna(macd_hist) else 0,
         'bb_lower': bb_lower if bb_lower is not None and not pd.isna(bb_lower) else 0,
         'bb_upper': bb_upper if bb_upper is not None and not pd.isna(bb_upper) else 0,
@@ -443,9 +556,9 @@ def evaluate_signals(symbol, df, config):
             'layers': layers,
             'data': status_summary
         }
-        return result, "SIGNAL_DETECTED"
+        return result, status_summary, "SIGNAL_DETECTED"
     
-    return None, "HOLD"
+    return None, status_summary, "HOLD"
 
 # ============================================================
 # CHART GENERATOR
@@ -511,59 +624,54 @@ def format_alert(signal_data):
     # Header
     if direction == "BUY":
         if conf == "HIGH":
-            alert_title = "🚨 STRONG BUY SIGNAL"
+            alert_title = "🚨 [STRONG BUY SIGNAL] — INSTITUTIONAL LOAD"
         else:
-            alert_title = "👀 WATCHLIST — BUY"
+            alert_title = "👀 [WATCHLIST BUY] — SETUP FORMING"
     else:
         if conf == "HIGH":
-            alert_title = "🔴 STRONG SELL SIGNAL"
+            alert_title = "🔴 [STRONG SELL SIGNAL] — DISTRIBUTION ALERT"
         else:
-            alert_title = "⚠️ WATCHLIST — SELL"
+            alert_title = "⚠️ [WATCHLIST SELL] — EXIT SETUP"
         
     msg = f"*{alert_title}*\n"
-    msg += f"Strategy: Swing Trading | TF: Daily\n"
+    msg += f"Advisor: V6 Intelligence | TF: Daily\n"
     msg += "─" * 30 + "\n\n"
     
     # Price & Indicators
     pct_sign = "↑" if s['pct_1d'] > 0 else "↓"
     msg += f"🏢 *{sym_name}*\n"
     msg += f"💵 Price: {format_rp(s['close'])} ({pct_sign} {abs(s['pct_1d']):.1f}%)\n"
-    msg += f"📊 Volume: {format_vol(s['vol'])} ({s['vol_ratio']*100:.0f}% of Avg)\n"
-    msg += f"📈 RSI: {s['rsi']:.1f} | MACD: {'↑' if s['macd_hist'] > 0 else '↓'}\n\n"
+    msg += f"📊 Vol: {format_vol(s['vol'])} ({s['vol_ratio']*100:.0f}% of Avg)\n\n"
     
-    # Volume Context
-    msg += f"🔎 Vol Pattern: {s['vol_context']}\n\n"
+    # BLOCK 1: MARKET DYNAMICS (Wyckoff & Volatility)
+    msg += f"🧠 *[MARKET DYNAMICS]*\n"
+    msg += f"Phase: `{s['wyckoff_phase']}`\n"
+    msg += f"Volatility: `{'SQUEEZE (Pending Breakout)' if s['is_squeeze'] else 'Normal Expansion'}`\n\n"
     
-    # Support / Resistance
-    msg += f"📏 *Key Levels:*\n"
-    msg += f"  Support: {format_rp(s['support'])}\n"
-    msg += f"  Resistance: {format_rp(s['resistance'])}\n\n"
+    # BLOCK 2: BEE-FLOW (Institutional Flow)
+    msg += f"🐝 *[BEE-FLOW ANALYSIS]*\n"
+    msg += f"Status: `{s['bee_label']}`\n"
+    msg += f"Confidence: `{s['bee_score']}/10 Intelligence Score`\n"
+    msg += f"Logic: {s['vol_context']}\n\n"
     
-    # Trading Plan
-    msg += f"📋 *TRADING PLAN:*\n"
+    # BLOCK 3: TRADING PLAN
+    msg += f"📋 *[TRADING PLAN]*\n"
     if direction == "BUY":
-        msg += f"  Entry Zone: {format_rp(s['entry_low'])} — {format_rp(s['entry_high'])}\n"
-        msg += f"  Stop Loss: {format_rp(s['stop_loss'])}\n"
-        msg += f"  Target 1: {format_rp(s['target_1'])} (RRR 1:{s['rrr_1']})\n"
-        msg += f"  Target 2: {format_rp(s['target_2'])} (RRR 1:{s['rrr_2']})\n"
+        msg += f"Entry: {format_rp(s['entry_low'])} — {format_rp(s['entry_high'])}\n"
+        msg += f"Stop Loss: {format_rp(s['stop_loss'])}\n"
+        msg += f"Target 1: {format_rp(s['target_1'])} (RRR 1:{s['rrr_1']})\n"
+        msg += f"Target 2: {format_rp(s['target_2'])} (RRR 1:{s['rrr_2']})\n"
     else:
-        msg += f"  Exit/Cut Loss below: {format_rp(s['stop_loss'])}\n"
-        msg += f"  Take Profit at: {format_rp(s['target_1'])}\n"
-    msg += f"  Risk: Max {s['risk_pct']}% of capital per trade\n\n"
+        msg += f"Exit Level: {format_rp(s['stop_loss'])}\n"
+        msg += f"Target Exit: {format_rp(s['target_1'])}\n"
+    msg += f"Risk Management: 2% Cap per Trade\n\n"
     
     # Conviction Score
-    msg += f"🎯 *Conviction: {score:.0f}/8 ({conf})*\n"
-    
-    all_layers = ['RSI', 'MA50', 'MA200', 'Volume', 'MACD', 'BB', 'S/R', 'Candle']
-    layer_str = ""
-    for l in all_layers:
-        if l in layers:
-            layer_str += f"✓{l} "
-        else:
-            layer_str += f"✗{l} "
+    msg += f"🎯 *Conviction: {score:.1f}/10 ({conf})*\n"
+    layer_str = " ".join([f"✓{l}" if l in layers else f"✗{l}" for l in ['RSI', 'MACD', 'MA200', 'BEE-FLOW', 'Phase', 'Volatility']])
     msg += f"{layer_str}\n\n"
     
-    msg += f"💡 {desc}\n"
+    msg += f"💡 Insight: {desc}\n"
     
     return msg
 
@@ -571,59 +679,47 @@ def format_status_report(all_stocks_status, ihsg_data=None):
     bullish_stocks = [s for s in all_stocks_status if s['trend'] == 'BULLISH']
     bearish_stocks = [s for s in all_stocks_status if s['trend'] == 'BEARISH']
     
-    msg = f"📊 *MARKET STATUS REPORT*\n"
+    msg = f"📊 *[MARKET INTELLIGENCE REPORT]*\n"
     msg += f"📅 {datetime.now(TIMEZONE).strftime('%d %b %Y, %H:%M WIB')}\n"
-    msg += f"📎 Strategy: Swing Trading | TF: Daily\n"
+    msg += f"📎 Advisor: V6 Engine | Strategy: Swing\n"
     msg += "=" * 35 + "\n\n"
     
     # IHSG Macro Context
     if ihsg_data:
         ihsg_pct = ihsg_data['pct_1d']
         ihsg_icon = "🟢" if ihsg_pct >= 0 else "🔴"
-        msg += f"🏛️ *MARKET MACRO:*\n"
-        msg += f"{ihsg_icon} IHSG: {format_rp(ihsg_data['close'])} ({'↑' if ihsg_pct >= 0 else '↓'} {abs(ihsg_pct):.1f}%) — {ihsg_data['trend']}\n\n"
+        msg += f"🏛️ *[MACRO SENTIMENT]*\n"
+        msg += f"{ihsg_icon} IHSG: {format_rp(ihsg_data['close'])} ({'↑' if ihsg_pct >= 0 else '↓'} {abs(ihsg_pct):.1f}%) — `{ihsg_data['trend']}`\n\n"
     
     # BULLISH ZONE
-    msg += f"📈 *BULLISH ({len(bullish_stocks)}):*\n"
+    msg += f"📈 *[BULLISH DYNAMICS]*\n"
     if not bullish_stocks:
-        msg += "— None —\n"
+        msg += "No stocks in markup phase.\n"
     for i, s in enumerate(bullish_stocks, 1):
         sym = s['symbol'].split('.')[0]
-        rsi_status = "ACCUM" if s['rsi'] < 40 else "STABLE"
         macd_txt = "↑" if s.get('macd_hist', 0) > 0 else "↓"
-        pattern_txt = f" | {s['pattern']}" if s.get('pattern') else ""
-        msg += f"{i}. {sym} | {format_rp(s['close'])} | RSI:{s['rsi']:.0f} | MACD:{macd_txt} | {rsi_status}{pattern_txt}\n"
-        msg += f"   S: {format_rp(s['support'])} | R: {format_rp(s['resistance'])}\n"
+        msg += f"{i}. {sym} | {format_rp(s['close'])} | BEE:{s.get('bee_score', 0)}/10 | MACD:{macd_txt}\n"
+        msg += f"   Phase: `{s.get('wyckoff_phase', 'N/A')}`\n"
             
-    msg += f"\n📉 *BEARISH ({len(bearish_stocks)}):*\n"
+    msg += f"\n📉 *[BEARISH DYNAMICS]*\n"
     if not bearish_stocks:
-        msg += "— None —\n"
+        msg += "No stocks in markdown phase.\n"
     for i, s in enumerate(bearish_stocks, 1):
         sym = s['symbol'].split('.')[0]
-        macd_txt = "↑" if s.get('macd_hist', 0) > 0 else "↓"
-        pattern_txt = f" | {s['pattern']}" if s.get('pattern') else ""
-        msg += f"{i}. {sym} | {format_rp(s['close'])} | RSI:{s['rsi']:.0f} | MACD:{macd_txt}{pattern_txt}\n"
-        msg += f"   S: {format_rp(s['support'])} | R: {format_rp(s['resistance'])}\n"
+        msg += f"{i}. {sym} | {format_rp(s['close'])} | BEE:{s.get('bee_score', 0)}/10\n"
+        msg += f"   Phase: `{s.get('wyckoff_phase', 'N/A')}`\n"
             
-    msg += f"\n⚙️ *SUMMARY:*\n"
-    msg += f"✓ Universe: {len(all_stocks_status)} | Bullish: {len(bullish_stocks)} | Bearish: {len(bearish_stocks)}\n\n"
-    
-    # Top Conviction
-    all_sorted = sorted(all_stocks_status, key=lambda x: max(x.get('buy_score', 0), x.get('sell_score', 0)), reverse=True)
-    top = [s for s in all_sorted if max(s.get('buy_score', 0), s.get('sell_score', 0)) >= 2][:5]
+    msg += f"\n🔍 *[BEE-FLOW TOP CONVICTION]*\n"
+    all_sorted = sorted(all_stocks_status, key=lambda x: x.get('bee_score', 0), reverse=True)
+    top = [s for s in all_sorted if s.get('bee_score', 0) >= 5][:5]
     if top:
-        msg += "🔍 *TOP CONVICTION:*\n"
         for s in top:
             sym = s['symbol'].split('.')[0]
-            bs = s.get('buy_score', 0)
-            ss = s.get('sell_score', 0)
-            if bs >= ss:
-                msg += f"  • {sym}: Buy {bs:.0f}/8 | Entry: {format_rp(s['entry_low'])}—{format_rp(s['entry_high'])} | SL: {format_rp(s['stop_loss'])}\n"
-            else:
-                msg += f"  • {sym}: Sell {ss:.0f}/8 | Cut below: {format_rp(s['stop_loss'])}\n"
-        msg += "\n"
+            msg += f"  • {sym}: {s['bee_label']} ({s['bee_score']}/10)\n"
+    else:
+        msg += "No strong institutional flow detected.\n"
     
-    msg += "📌 Monitoring active. Next scan in 1 hour.\n"
+    msg += "\n📌 *[CONSENSUS]*: Monitoring Smart Money footprints. Scan complete.\n"
     
     return msg
 
@@ -671,59 +767,13 @@ async def main():
         df = fetch_data(symbol, config)
         if df is not None:
             df = calculate_indicators(df, config)
-            signal_data, reason = evaluate_signals(symbol, df, config)
+            signal_data, status_summary, reason = evaluate_signals(symbol, df, config)
             
-            # Always collect status
+            # Always track status for reporting
+            all_stocks_status.append(status_summary)
+
             if signal_data:
-                all_stocks_status.append(signal_data['data'])
-            else:
-                # Build basic status for non-signal stocks
-                last_row = df.iloc[-1]
-                ind_cfg = config['indicators']
-                ma200_col = f"SMA_{ind_cfg['ma_long']}"
-                macd_hist_col = f"MACDh_{ind_cfg['macd_fast']}_{ind_cfg['macd_slow']}_{ind_cfg['macd_signal']}"
-                atr_col = f"ATRr_{ind_cfg['atr_period']}"
-                
-                close = last_row['Close']
-                ma200 = last_row.get(ma200_col, 0)
-                support = last_row.get('Support_Level', 0)
-                resistance = last_row.get('Resistance_Level', 0)
-                macd_h = last_row.get(macd_hist_col, 0)
-                atr_val = last_row.get(atr_col)
-                if atr_val is None or pd.isna(atr_val):
-                    atr_val = last_row.get(f"ATR_{ind_cfg['atr_period']}", close * 0.02)
-                if pd.isna(atr_val):
-                    atr_val = close * 0.02
-                
-                rsi_val = last_row.get(f"RSI_{ind_cfg['rsi_length']}", 50)
-                if pd.isna(rsi_val): rsi_val = 50
-                if pd.isna(ma200): ma200 = close
-                if pd.isna(support): support = close
-                if pd.isna(resistance): resistance = close
-                if pd.isna(macd_h): macd_h = 0
-                
-                all_stocks_status.append({
-                    'symbol': symbol,
-                    'close': close,
-                    'rsi': rsi_val,
-                    'ma200': ma200,
-                    'ma50': last_row.get(f"SMA_{ind_cfg['ma_short']}", 0),
-                    'vol': last_row['Volume'],
-                    'vol_ratio': last_row['Volume'] / last_row.get('Vol_Avg', last_row['Volume']),
-                    'pct_1d': last_row.get('Pct_Change_1D', 0),
-                    'pattern': detect_candles(df),
-                    'vol_context': '',
-                    'macd_hist': macd_h,
-                    'support': support,
-                    'resistance': resistance,
-                    'entry_low': round(close - atr_val * 0.3, 0),
-                    'entry_high': round(close + atr_val * 0.3, 0),
-                    'stop_loss': round(max(support, close - atr_val * 2), 0),
-                    'target_1': round(min(resistance, close + atr_val * 2), 0),
-                    'buy_score': 0,
-                    'sell_score': 0,
-                    'trend': 'BULLISH' if close > ma200 else 'BEARISH'
-                })
+                sig_type = signal_data['type']
 
             if signal_data:
                 sig_type = signal_data['type']

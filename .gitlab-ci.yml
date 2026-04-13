@@ -1,0 +1,39 @@
+# GitLab CI/CD Configuration for Stock Intelligence Bot V6
+# Migration from GitHub Actions
+
+stages:
+  - analyze
+
+variables:
+  # Python buffer setup
+  PYTHONUNBUFFERED: "1"
+  PIP_CACHE_DIR: "$CI_PROJECT_DIR/.cache/pip"
+
+# Cache logic to speed up library installation
+cache:
+  paths:
+    - .cache/pip
+    - venv/
+
+stock_analysis_job:
+  stage: analyze
+  image: python:3.12-slim
+  before_script:
+    - apt-get update && apt-get install -y libagg-dev # Required for some matplotlib operations if needed
+    - python -m venv venv
+    - source venv/bin/activate
+    - pip install --upgrade pip
+    - pip install -r requirements.txt
+  script:
+    - source venv/bin/activate
+    - python main.py
+  rules:
+    # Run only on schedules OR manual trigger (web)
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+    - if: $CI_PIPELINE_SOURCE == "web"
+    - if: $CI_PIPELINE_SOURCE == "push"
+      when: manual # Optional: allows manual run on push but doesn't run automatically
+  artifacts:
+    paths:
+      - ./*.png # Simpan chart jika ada error/ingin pengecekan manual
+    expire_in: 1 week
