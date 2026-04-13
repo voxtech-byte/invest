@@ -49,6 +49,50 @@ def format_vol(n):
     return f"{n/1_000_000:.1f}M" if n >= 1e6 else f"{n/1_000:.1f}K"
 
 # ============================================================
+# CINEMATIC UI HELPERS (V7)
+# ============================================================
+
+def draw_progress_bar(value, max_val=10):
+    """Draws a visual bar like ██████░░░░"""
+    try:
+        val = int(round(value))
+        filled = max(0, min(max_val, val))
+        empty = max_val - filled
+        return "█" * filled + "░" * empty
+    except:
+        return "░" * max_val
+
+def generate_narrative(s):
+    """Generates 'Bandarmology' street smart narrative based on data"""
+    bee = s.get('bee_score', 0)
+    phase = s.get('wyckoff_phase', '')
+    squeeze = s.get('is_squeeze', False)
+    
+    narratives = []
+    
+    if bee >= 8:
+        narratives.append("Gila, Big Player lagi kenceng banget kumpulin barang! Ini akumulasi rapi banget.")
+    elif bee >= 6:
+        narratives.append("Ada jejak halus Pemain Besar lagi cicil barang nih. Masih kalem tapi pasti.")
+    elif bee <= 3:
+        narratives.append("Hati-hati, kayaknya Bandar lagi mulai guyur barang pelan-pelan ke ritel.")
+        
+    if "MARKUP" in phase:
+        narratives.append("Harga lagi ditarik naik, ombaknya lagi cakep buat ditumpangi.")
+    elif "ACCUMULATION" in phase:
+        narratives.append("Lagi fase persiapan, harga dijaga biar nggak kemana-mana dulu.")
+    elif "DISTRIBUTION" in phase:
+        narratives.append("Waspada, ini udah di area bongkar muatan. Jangan mau jadi penadah.")
+        
+    if squeeze:
+        narratives.append("Wah, harga lagi dikempit nih! Volatilitas ciut, biasanya bentar lagi bakal meledak ke satu arah.")
+        
+    if not narratives:
+        narratives.append("Market lagi galau, belum ada pergerakan mencolok dari Bandar. Pantau aja dulu.")
+        
+    return " ".join(narratives)
+
+# ============================================================
 # DATA FETCHING
 # ============================================================
 
@@ -612,7 +656,6 @@ def generate_chart(symbol, df, config):
 
 def format_alert(signal_data):
     s = signal_data['data']
-    sig = signal_data['type']
     conf = signal_data['confidence']
     desc = signal_data['desc']
     direction = signal_data['direction']
@@ -620,56 +663,55 @@ def format_alert(signal_data):
     layers = signal_data['layers']
     
     sym_name = s['symbol'].split('.')[0]
+    narrative = generate_narrative(s)
     
-    # Header
+    # Cinematic Header
     if direction == "BUY":
-        if conf == "HIGH":
-            alert_title = "🚨 [STRONG BUY SIGNAL] — INSTITUTIONAL LOAD"
-        else:
-            alert_title = "👀 [WATCHLIST BUY] — SETUP FORMING"
+        alert_title = "🚀 [INSTITUTIONAL ACCUMULATION]" if conf == "HIGH" else "👀 [SMART MONEY WATCHING]"
     else:
-        if conf == "HIGH":
-            alert_title = "🔴 [STRONG SELL SIGNAL] — DISTRIBUTION ALERT"
-        else:
-            alert_title = "⚠️ [WATCHLIST SELL] — EXIT SETUP"
+        alert_title = "⚠️ [DISTRIBUTION WARNING]" if conf == "HIGH" else "📉 [EXIT PROTOCOL]"
         
     msg = f"*{alert_title}*\n"
-    msg += f"Advisor: V6 Intelligence | TF: Daily\n"
-    msg += "─" * 30 + "\n\n"
+    msg += f"Core: V7 Cinematic Intel | 24H Monitor\n"
+    msg += "━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
     
-    # Price & Indicators
-    pct_sign = "↑" if s['pct_1d'] > 0 else "↓"
+    # Asset Context
+    pct_sign = "▲" if s['pct_1d'] > 0 else "▼"
     msg += f"🏢 *{sym_name}*\n"
-    msg += f"💵 Price: {format_rp(s['close'])} ({pct_sign} {abs(s['pct_1d']):.1f}%)\n"
-    msg += f"📊 Vol: {format_vol(s['vol'])} ({s['vol_ratio']*100:.0f}% of Avg)\n\n"
+    msg += f"💰 Price: `{format_rp(s['close'])}` ({pct_sign} {abs(s['pct_1d']):.1f}%)\n"
+    msg += f"📊 Volume: `{format_vol(s['vol'])}` ({s['vol_ratio']*100:.0f}% vs Avg)\n\n"
     
-    # BLOCK 1: MARKET DYNAMICS (Wyckoff & Volatility)
-    msg += f"🧠 *[MARKET DYNAMICS]*\n"
+    # MARKET DYNAMICS
+    msg += f"🏛️ *[MARKET PULSE]*\n"
     msg += f"Phase: `{s['wyckoff_phase']}`\n"
-    msg += f"Volatility: `{'SQUEEZE (Pending Breakout)' if s['is_squeeze'] else 'Normal Expansion'}`\n\n"
+    msg += f"Vola: `{'SQUEEZE (Ready to Explode)' if s['is_squeeze'] else 'Flowing'}`\n\n"
     
-    # BLOCK 2: BEE-FLOW (Institutional Flow)
-    msg += f"🐝 *[BEE-FLOW ANALYSIS]*\n"
-    msg += f"Status: `{s['bee_label']}`\n"
-    msg += f"Confidence: `{s['bee_score']}/10 Intelligence Score`\n"
-    msg += f"Logic: {s['vol_context']}\n\n"
+    # BEE-FLOW ENERGY BAR
+    bee_bar = draw_progress_bar(s['bee_score'])
+    msg += f"🐝 *[BEE-FLOW ENERGY]*\n"
+    msg += f"`{bee_bar}` {s['bee_score']}/10\n"
+    msg += f"Status: *{s['bee_label']}*\n\n"
     
-    # BLOCK 3: TRADING PLAN
-    msg += f"📋 *[TRADING PLAN]*\n"
+    # NARRATIVE (The 'One of a Kind' feature)
+    msg += f"💬 *[BANDAR ANALYTICS]*\n"
+    msg += f"_{narrative}_\n\n"
+    
+    # ACTION PLAN
+    msg += f"🎯 *[STRATEGY PLAN]*\n"
     if direction == "BUY":
-        msg += f"Entry: {format_rp(s['entry_low'])} — {format_rp(s['entry_high'])}\n"
-        msg += f"Stop Loss: {format_rp(s['stop_loss'])}\n"
-        msg += f"Target 1: {format_rp(s['target_1'])} (RRR 1:{s['rrr_1']})\n"
-        msg += f"Target 2: {format_rp(s['target_2'])} (RRR 1:{s['rrr_2']})\n"
+        msg += f"Entry: `{format_rp(s['entry_low'])} — {format_rp(s['entry_high'])}`\n"
+        msg += f"Stop Loss: `{format_rp(s['stop_loss'])}` (Guard Level)\n"
+        msg += f"Targets: `{format_rp(s['target_1'])}` | `{format_rp(s['target_2'])}`\n"
     else:
-        msg += f"Exit Level: {format_rp(s['stop_loss'])}\n"
-        msg += f"Target Exit: {format_rp(s['target_1'])}\n"
-    msg += f"Risk Management: 2% Cap per Trade\n\n"
+        msg += f"Exit Now: `{format_rp(s['close'])}` | Target Exit: `{format_rp(s['target_1'])}`\n"
+    msg += f"Risk: 2% Rule Applied\n\n"
     
-    # Conviction Score
-    msg += f"🎯 *Conviction: {score:.1f}/10 ({conf})*\n"
+    # INTELLIGENCE CONVICTION
+    conv_bar = draw_progress_bar(score, max_val=10)
+    msg += f"🧠 *[INTEL CONVICTION]*\n"
+    msg += f"`{conv_bar}` {score:.1f}/10\n"
     layer_str = " ".join([f"✓{l}" if l in layers else f"✗{l}" for l in ['RSI', 'MACD', 'MA200', 'BEE-FLOW', 'Phase', 'Volatility']])
-    msg += f"{layer_str}\n\n"
+    msg += f"Signals: {layer_str}\n\n"
     
     msg += f"💡 Insight: {desc}\n"
     
@@ -679,47 +721,50 @@ def format_status_report(all_stocks_status, ihsg_data=None):
     bullish_stocks = [s for s in all_stocks_status if s['trend'] == 'BULLISH']
     bearish_stocks = [s for s in all_stocks_status if s['trend'] == 'BEARISH']
     
-    msg = f"📊 *[MARKET INTELLIGENCE REPORT]*\n"
+    msg = f"📊 *[CINEMATIC INTELLIGENCE REPORT]*\n"
     msg += f"📅 {datetime.now(TIMEZONE).strftime('%d %b %Y, %H:%M WIB')}\n"
-    msg += f"📎 Advisor: V6 Engine | Strategy: Swing\n"
-    msg += "=" * 35 + "\n\n"
+    msg += f"📎 Core: V7 Engine | 24H Surveillance\n"
+    msg += "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
     
     # IHSG Macro Context
     if ihsg_data:
         ihsg_pct = ihsg_data['pct_1d']
         ihsg_icon = "🟢" if ihsg_pct >= 0 else "🔴"
-        msg += f"🏛️ *[MACRO SENTIMENT]*\n"
-        msg += f"{ihsg_icon} IHSG: {format_rp(ihsg_data['close'])} ({'↑' if ihsg_pct >= 0 else '↓'} {abs(ihsg_pct):.1f}%) — `{ihsg_data['trend']}`\n\n"
+        ihsg_bar = draw_progress_bar((ihsg_pct + 2) * 2.5, max_val=10) # Normalized
+        msg += f"🏛️ *[GLOBAL MACRO PULSE]*\n"
+        msg += f"IHSG: `{format_rp(ihsg_data['close'])}` ({'↑' if ihsg_pct >= 0 else '↓'} {abs(ihsg_pct):.1f}%)\n"
+        msg += f"`{ihsg_bar}` Sentiment: `{ihsg_data['trend']}`\n\n"
     
     # BULLISH ZONE
     msg += f"📈 *[BULLISH DYNAMICS]*\n"
     if not bullish_stocks:
-        msg += "No stocks in markup phase.\n"
+        msg += "_No assets in markup phase._\n"
     for i, s in enumerate(bullish_stocks, 1):
         sym = s['symbol'].split('.')[0]
-        macd_txt = "↑" if s.get('macd_hist', 0) > 0 else "↓"
-        msg += f"{i}. {sym} | {format_rp(s['close'])} | BEE:{s.get('bee_score', 0)}/10 | MACD:{macd_txt}\n"
+        bee_bar = draw_progress_bar(s.get('bee_score', 0), max_val=5) # Mini bar
+        msg += f"{i}. {sym} | `{format_rp(s['close'])}` | `{bee_bar}`\n"
         msg += f"   Phase: `{s.get('wyckoff_phase', 'N/A')}`\n"
             
     msg += f"\n📉 *[BEARISH DYNAMICS]*\n"
     if not bearish_stocks:
-        msg += "No stocks in markdown phase.\n"
+        msg += "_No assets in markdown phase._\n"
     for i, s in enumerate(bearish_stocks, 1):
         sym = s['symbol'].split('.')[0]
-        msg += f"{i}. {sym} | {format_rp(s['close'])} | BEE:{s.get('bee_score', 0)}/10\n"
+        msg += f"{i}. {sym} | `{format_rp(s['close'])}`\n"
         msg += f"   Phase: `{s.get('wyckoff_phase', 'N/A')}`\n"
             
-    msg += f"\n🔍 *[BEE-FLOW TOP CONVICTION]*\n"
+    msg += f"\n🔍 *[BEE-FLOW CONVICTION]*\n"
     all_sorted = sorted(all_stocks_status, key=lambda x: x.get('bee_score', 0), reverse=True)
-    top = [s for s in all_sorted if s.get('bee_score', 0) >= 5][:5]
+    top = [s for s in all_sorted if s.get('bee_score', 0) >= 4][:5]
     if top:
         for s in top:
             sym = s['symbol'].split('.')[0]
-            msg += f"  • {sym}: {s['bee_label']} ({s['bee_score']}/10)\n"
+            bee_bar = draw_progress_bar(s.get('bee_score', 0), max_val=10)
+            msg += f"• *{sym}*: `{bee_bar}` {s['bee_score']}/10\n"
     else:
-        msg += "No strong institutional flow detected.\n"
+        msg += "_Institutional flow is dormant._\n"
     
-    msg += "\n📌 *[CONSENSUS]*: Monitoring Smart Money footprints. Scan complete.\n"
+    msg += "\n🎬 *[DIRECTOR'S CUT]*: Smart money logic applied. Surveillance continues in 2 hours.\n"
     
     return msg
 

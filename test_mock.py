@@ -30,22 +30,22 @@ def create_mock_df():
     df = pd.DataFrame(data, index=dates)
     return df
 
-def simulate_strong_buy():
-    print("--- Simulating STRONG BUY (V6 Intelligence) ---")
+def simulate_v7_acc():
+    print("--- Simulating V7 [INSTITUTIONAL ACCUMULATION] ---")
     data = {
         'type': 'STRONG_BUY', 'confidence': 'HIGH',
-        'desc': 'Multiple confirmations align. Institutional load detected.',
-        'direction': 'BUY', 'score': 9.5,
+        'desc': 'Multiple confirmations align. Smart money footprint detected.',
+        'direction': 'BUY', 'score': 9.2,
         'layers': {
             'RSI': 'Oversold (28)', 'MA200': 'Uptrend',
-            'BEE-FLOW': 'Institutional Accumulation (9/10)',
-            'Phase': 'MARKUP (Strong Trend)', 'Volatility': 'SQUEEZE'
+            'BEE-FLOW': 'High Accum (9/10)',
+            'Phase': 'MARKUP', 'Volatility': 'SQUEEZE'
         },
         'data': {
             'symbol': 'ASII.JK', 'close': 6175, 'rsi': 28.0,
             'ma200': 5886, 'ma50': 6100, 'vol': 8500000, 'vol_ratio': 2.1,
             'pct_1d': 1.8, 'pattern': 'Hammer',
-            'vol_context': 'Strong Accumulation (Price ↑ + Volume ↑↑)',
+            'vol_context': 'Strong Accumulation',
             'wyckoff_phase': 'MARKUP (Strong Trend)',
             'bee_score': 9, 'bee_label': 'HIGH ACCUMULATION (BIG BEE)',
             'is_squeeze': True,
@@ -54,70 +54,70 @@ def simulate_strong_buy():
             'entry_low': 6100, 'entry_high': 6180,
             'stop_loss': 5900, 'target_1': 6450, 'target_2': 6800,
             'rrr_1': 1.0, 'rrr_2': 2.3, 'risk_pct': 2.0,
-            'buy_score': 9, 'sell_score': 0, 'trend': 'BULLISH'
+            'buy_score': 9.2, 'sell_score': 0, 'trend': 'BULLISH'
         }
     }
     return format_alert(data), data
 
-def simulate_watchlist():
-    print("--- Simulating WATCHLIST BUY (V6 Intelligence) ---")
+def simulate_v7_dist():
+    print("--- Simulating V7 [DISTRIBUTION WARNING] ---")
     data = {
-        'type': 'WATCHLIST_BUY', 'confidence': 'MEDIUM',
-        'desc': 'Moderate buy signals. Monitor for additional confirmation.',
-        'direction': 'BUY', 'score': 4.5,
+        'type': 'WATCHLIST_SELL', 'confidence': 'MEDIUM',
+        'desc': 'Bandar mulai jualan barang di area resisten.',
+        'direction': 'SELL', 'score': 3.5,
         'layers': {
-            'RSI': 'Low Zone (35)', 'MA200': 'Uptrend',
-            'BEE-FLOW': 'Mild Bee Flow (5/10)'
+            'RSI': 'Overbought (75)',
+            'BEE-FLOW': 'Distribution (2/10)'
         },
         'data': {
-            'symbol': 'PGAS.JK', 'close': 1700, 'rsi': 35.0,
-            'ma200': 1650, 'ma50': 1720, 'vol': 42000000, 'vol_ratio': 1.3,
-            'pct_1d': 0.6, 'pattern': '',
-            'vol_context': 'Healthy Buying (Price ↑ + Normal Vol)',
-            'wyckoff_phase': 'ACCUMULATION (Smart Money Buying)',
-            'bee_score': 5, 'bee_label': 'MILD ACCUMULATION',
+            'symbol': 'BBCA.JK', 'close': 10450, 'rsi': 75.0,
+            'ma200': 9800, 'ma50': 10100, 'vol': 45000000, 'vol_ratio': 1.8,
+            'pct_1d': -0.5, 'pattern': 'Shooting Star',
+            'vol_context': 'Institutional Distribution',
+            'wyckoff_phase': 'DISTRIBUTION (Institutions Selling)',
+            'bee_score': 2, 'bee_label': 'DISTRIBUTION (EXITING)',
             'is_squeeze': False,
-            'macd_hist': -2.1, 'bb_lower': 1620, 'bb_upper': 1780,
-            'support': 1600, 'resistance': 1850, 'atr': 35,
-            'entry_low': 1690, 'entry_high': 1710,
-            'stop_loss': 1630, 'target_1': 1770, 'target_2': 1805,
-            'rrr_1': 1.0, 'rrr_2': 1.5, 'risk_pct': 2.0,
-            'buy_score': 4.5, 'sell_score': 1, 'trend': 'BULLISH'
+            'macd_hist': -1.2, 'bb_lower': 9900, 'bb_upper': 10600,
+            'support': 10000, 'resistance': 10550, 'atr': 150,
+            'entry_low': 0, 'entry_high': 0,
+            'stop_loss': 10200, 'target_1': 9800, 'target_2': 9500,
+            'rrr_1': 0, 'rrr_2': 0, 'risk_pct': 2.0,
+            'buy_score': 0, 'sell_score': 3.5, 'trend': 'BULLISH'
         }
     }
     return format_alert(data), data
 
-def simulate_report():
-    print("--- Simulating MARKET INTELLIGENCE REPORT ---")
+def simulate_v7_report():
+    print("--- Simulating V7 CINEMATIC REPORT ---")
     ihsg = {'close': 6850, 'pct_1d': -0.3, 'trend': 'BEARISH'}
     stocks = [
-        {'symbol': 'BBCA.JK', 'close': 10450, 'trend': 'BULLISH', 'bee_score': 2, 'bee_label': 'NEUTRAL', 'wyckoff_phase': 'CONSOLIDATION', 'macd_hist': 12.0},
-        {'symbol': 'ASII.JK', 'close': 6175, 'trend': 'BULLISH', 'bee_score': 9, 'bee_label': 'HIGH ACCUMULATION', 'wyckoff_phase': 'MARKUP', 'macd_hist': 15.5},
-        {'symbol': 'BBNI.JK', 'close': 3710, 'trend': 'BEARISH', 'bee_score': 1, 'bee_label': 'DISTRIBUTION', 'wyckoff_phase': 'MARKDOWN', 'macd_hist': -5.0},
+        {'symbol': 'BBCA.JK', 'close': 10450, 'trend': 'BULLISH', 'bee_score': 2, 'bee_label': 'DISTRIBUTION', 'wyckoff_phase': 'DISTRIBUTION', 'macd_hist': 12.0, 'pct_1d': -0.5},
+        {'symbol': 'ASII.JK', 'close': 6175, 'trend': 'BULLISH', 'bee_score': 9, 'bee_label': 'HIGH ACCUMULATION', 'wyckoff_phase': 'MARKUP', 'macd_hist': 15.5, 'pct_1d': 1.8},
+        {'symbol': 'PGAS.JK', 'close': 1700, 'trend': 'BULLISH', 'bee_score': 5, 'bee_label': 'MILD ACCUM', 'wyckoff_phase': 'ACCUMULATION', 'macd_hist': 2.1, 'pct_1d': 0.6},
     ]
     return format_status_report(stocks, ihsg_data=ihsg), None
 
 async def run_test():
-    parser = argparse.ArgumentParser(description="V6 Intelligence Mock Test")
-    parser.add_argument('--type', choices=['strong_buy', 'watchlist', 'report'], default='strong_buy')
+    parser = argparse.ArgumentParser(description="V7 Cinematic Intelligence Mock Test")
+    parser.add_argument('--type', choices=['acc', 'dist', 'report'], default='acc')
     parser.add_argument('--send-telegram', action='store_true')
     args = parser.parse_args()
 
     message = ""
     photo_path = None
     
-    if args.type == 'strong_buy':
-        message, sig_data = simulate_strong_buy()
+    if args.type == 'acc':
+        message, sig_data = simulate_v7_acc()
         config = load_config()
         df = create_mock_df()
         try:
             photo_path = generate_chart('ASII.JK', df, config)
         except Exception as e:
             print(f"Chart error: {e}")
-    elif args.type == 'watchlist':
-        message, _ = simulate_watchlist()
+    elif args.type == 'dist':
+        message, _ = simulate_v7_dist()
     elif args.type == 'report':
-        message, _ = simulate_report()
+        message, _ = simulate_v7_report()
 
     print("\n[PREVIEW]")
     print(message)

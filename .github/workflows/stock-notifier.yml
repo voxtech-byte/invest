@@ -1,0 +1,33 @@
+name: Stock Cinematic Notifier V7
+
+on:
+  schedule:
+    # Running every 2 hours at minute 17 to avoid peak traffic delays
+    - cron: '17 */2 * * *'
+  workflow_dispatch: # Allow manual trigger
+
+jobs:
+  run-notifier:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+          
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          
+      - name: Run Stock Notifier V7
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          python main.py
