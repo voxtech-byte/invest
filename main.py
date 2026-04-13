@@ -833,8 +833,12 @@ async def main():
             df = calculate_indicators(df, config)
             signal_data, status_summary, reason = evaluate_signals(symbol, df, config)
             
-            # Always track status for reporting
-            all_stocks_status.append(status_summary)
+            # Always track status for reporting, filter out invalid/NaN data
+            if status_summary is not None:
+                all_stocks_status.append(status_summary)
+            else:
+                print(f"[{symbol}] {reason}")
+                continue
 
             if signal_data:
                 sig_type = signal_data['type']
