@@ -167,9 +167,19 @@ def calculate_indicators(df, config):
     
     # Bollinger Bands & Squeeze Logic
     df.ta.bbands(length=ind_cfg['bb_period'], std=ind_cfg['bb_std'], append=True)
-    bb_upper = df[f"BBU_{ind_cfg['bb_period']}_{ind_cfg['bb_std']}"]
-    bb_lower = df[f"BBL_{ind_cfg['bb_period']}_{ind_cfg['bb_std']}"]
-    df['BB_Width'] = (bb_upper - bb_lower) / df[f"BBM_{ind_cfg['bb_period']}_{ind_cfg['bb_std']}"]
+    
+    # Robust column discovery for BB (handles 2.0 vs 2 naming issues)
+    bbu_col = [c for c in df.columns if c.startswith(f"BBU_{ind_cfg['bb_period']}")]
+    bbl_col = [c for c in df.columns if c.startswith(f"BBL_{ind_cfg['bb_period']}")]
+    bbm_col = [c for c in df.columns if c.startswith(f"BBM_{ind_cfg['bb_period']}")]
+    
+    if bbu_col and bbl_col and bbm_col:
+        bb_upper = df[bbu_col[0]]
+        bb_lower = df[bbl_col[0]]
+        bb_mid = df[bbm_col[0]]
+        df['BB_Width'] = (bb_upper - bb_lower) / bb_mid
+    else:
+        df['BB_Width'] = 0.0 # Fallback
     
     # Advanced Intelligence Indicators (BEE-FLOW Proxy)
     df.ta.vpt(append=True) # Volume Price Trend
