@@ -25,7 +25,7 @@ def create_mock_df():
         'BBL_20_2.0': [95 for _ in range(30)],
         'BBU_20_2.0': [105 for _ in range(30)],
         'BB_Width': [0.1 for _ in range(30)],
-        'VPT': [1000 for _ in range(30)],
+        'PVT': [1000 for _ in range(30)],
     }
     df = pd.DataFrame(data, index=dates)
     return df

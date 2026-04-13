@@ -182,7 +182,7 @@ def calculate_indicators(df, config):
         df['BB_Width'] = 0.0 # Fallback
     
     # Advanced Intelligence Indicators (BEE-FLOW Proxy)
-    df.ta.vpt(append=True) # Volume Price Trend
+    df.ta.pvt(append=True) # Price Volume Trend (Alternative to VPT)
     df.ta.obv(append=True) # On-Balance Volume
     df.ta.cmf(length=20, append=True) # Chaikin Money Flow
     
@@ -290,8 +290,8 @@ def calculate_bee_flow(df):
     if len(df) < 20: return 0, "NEUTRAL"
     
     last = df.iloc[-1]
-    vpt = last.get('VPT', 0)
-    cmf = last.get('CMF', 0)
+    pvt = last.get('PVT', 0)
+    cmf = last.get('CMF_20', 0)
     vol_ratio = last.get('Vol_Avg', 1) 
     vol_ratio = last['Volume'] / vol_ratio if vol_ratio > 0 else 1
     
@@ -301,8 +301,8 @@ def calculate_bee_flow(df):
     if cmf > 0.2: score += 4
     elif cmf > 0: score += 2
     
-    # VPT: Trend strength corroborated by volume
-    if vpt > df['VPT'].iloc[-5:].mean(): score += 3
+    # PVT: Trend strength corroborated by volume
+    if pvt > df['PVT'].iloc[-5:].mean(): score += 3
     
     # Volume/Price divergence check
     if last['Pct_Change_1D'] > 0 and vol_ratio > 1.5:
