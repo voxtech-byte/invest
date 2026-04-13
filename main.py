@@ -63,7 +63,7 @@ def draw_progress_bar(value, max_val=10):
         return "░" * max_val
 
 def generate_narrative(s):
-    """Generates 'Bandarmology' street smart narrative based on data"""
+    """Generates Institutional Probabilistic Narrative"""
     bee = s.get('bee_score', 0)
     phase = s.get('wyckoff_phase', '')
     squeeze = s.get('is_squeeze', False)
@@ -71,24 +71,24 @@ def generate_narrative(s):
     narratives = []
     
     if bee >= 8:
-        narratives.append("Gila, Big Player lagi kenceng banget kumpulin barang! Ini akumulasi rapi banget.")
+        narratives.append("Anomalous volume detection leans highly positive (Strong Bullish Edge).")
     elif bee >= 6:
-        narratives.append("Ada jejak halus Pemain Besar lagi cicil barang nih. Masih kalem tapi pasti.")
+        narratives.append("Moderate institutional footprint detected. Probable accumulation.")
     elif bee <= 3:
-        narratives.append("Hati-hati, kayaknya Bandar lagi mulai guyur barang pelan-pelan ke ritel.")
+        narratives.append("Distribution markers present. Risk of downside liquidation.")
         
     if "MARKUP" in phase:
-        narratives.append("Harga lagi ditarik naik, ombaknya lagi cakep buat ditumpangi.")
+        narratives.append("Asset is currently in markup phase; trend alignment is optimal.")
     elif "ACCUMULATION" in phase:
-        narratives.append("Lagi fase persiapan, harga dijaga biar nggak kemana-mana dulu.")
+        narratives.append("Price is consolidating at base. Favorable risk-to-reward if support holds.")
     elif "DISTRIBUTION" in phase:
-        narratives.append("Waspada, ini udah di area bongkar muatan. Jangan mau jadi penadah.")
+        narratives.append("Price action suggests overhead supply. Defensive positioning recommended.")
         
     if squeeze:
-        narratives.append("Wah, harga lagi dikempit nih! Volatilitas ciut, biasanya bentar lagi bakal meledak ke satu arah.")
+        narratives.append("Volatility compression (Squeeze) indicates impending directional expansion.")
         
     if not narratives:
-        narratives.append("Market lagi galau, belum ada pergerakan mencolok dari Bandar. Pantau aja dulu.")
+        narratives.append("Volume/Price consensus is neutral. Lacks clear probabilistic edge.")
         
     return " ".join(narratives)
 
@@ -110,6 +110,17 @@ def fetch_data(symbol, config):
             df['Peak_Price'] = df['High'].rolling(window=lookback, min_periods=1).max()
         else:
             df['Peak_Price'] = df['High'].rolling(window=len(df), min_periods=1).max()
+            
+        # V8: Fetch Fundamentals
+        try:
+            info = stock.info
+            df.attrs['pe_ratio'] = info.get('trailingPE', None)
+            df.attrs['pbv'] = info.get('priceToBook', None)
+            df.attrs['market_cap'] = info.get('marketCap', None)
+        except:
+            df.attrs['pe_ratio'] = None
+            df.attrs['pbv'] = None
+            df.attrs['market_cap'] = None
             
         return df
     except Exception as e:
@@ -597,7 +608,10 @@ def evaluate_signals(symbol, df, config):
         'risk_pct': risk_pct,
         'buy_score': buy_score,
         'sell_score': sell_score,
-        'trend': 'BULLISH' if close > ma200 else 'BEARISH'
+        'trend': 'BULLISH' if close > ma200 else 'BEARISH',
+        'pe_ratio': df.attrs.get('pe_ratio'),
+        'pbv': df.attrs.get('pbv'),
+        'market_cap': df.attrs.get('market_cap')
     }
 
     if signal:
@@ -675,14 +689,14 @@ def format_alert(signal_data):
     sym_name = s['symbol'].split('.')[0]
     narrative = generate_narrative(s)
     
-    # Cinematic Header
+    # Quant Header
     if direction == "BUY":
-        alert_title = "🚀 [INSTITUTIONAL ACCUMULATION]" if conf == "HIGH" else "👀 [SMART MONEY WATCHING]"
+        alert_title = "🚨 [QUANT BUY ALERT]" if conf == "HIGH" else "👀 [WATCHLIST: SETUP FORMING]"
     else:
         alert_title = "⚠️ [DISTRIBUTION WARNING]" if conf == "HIGH" else "📉 [EXIT PROTOCOL]"
         
     msg = f"*{alert_title}*\n"
-    msg += f"Core: V7 Cinematic Intel | 24H Monitor\n"
+    msg += f"Core: Quant Alpha Engine V8\n"
     msg += "━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
     
     # Asset Context
@@ -691,39 +705,47 @@ def format_alert(signal_data):
     msg += f"💰 Price: `{format_rp(s['close'])}` ({pct_sign} {abs(s['pct_1d']):.1f}%)\n"
     msg += f"📊 Volume: `{format_vol(s['vol'])}` ({s['vol_ratio']*100:.0f}% vs Avg)\n\n"
     
+    # FUNDAMENTAL CONTEXT
+    msg += f"🏛️ *[FUNDAMENTAL CONTEXT]*\n"
+    pe = f"{s['pe_ratio']:.1f}x" if s.get('pe_ratio') else "N/A"
+    pbv = f"{s['pbv']:.1f}x" if s.get('pbv') else "N/A"
+    mcap = f"{s['market_cap']/1e12:.1f}T" if s.get('market_cap') else "N/A"
+    msg += f"P/E: `{pe}` | PBV: `{pbv}` | MCap: `Rp{mcap}`\n\n"
+
     # MARKET DYNAMICS
-    msg += f"🏛️ *[MARKET PULSE]*\n"
+    msg += f"📉 *[TECHNICAL PULSE]*\n"
     msg += f"Phase: `{s['wyckoff_phase']}`\n"
-    msg += f"Vola: `{'SQUEEZE (Ready to Explode)' if s['is_squeeze'] else 'Flowing'}`\n\n"
+    msg += f"Vola: `{'SQUEEZE (Pending Expansion)' if s['is_squeeze'] else 'Normal'}`\n\n"
     
-    # BEE-FLOW ENERGY BAR
+    # SMART MONEY PROXY (was BEE-FLOW)
     bee_bar = draw_progress_bar(s['bee_score'])
-    msg += f"🐝 *[BEE-FLOW ENERGY]*\n"
+    msg += f"🧠 *[SMART MONEY PROXY]*\n"
     msg += f"`{bee_bar}` {s['bee_score']}/10\n"
-    msg += f"Status: *{s['bee_label']}*\n\n"
+    msg += f"_(Score based on Price-Volume Trend & Chaikin Money Flow)_\n\n"
     
-    # NARRATIVE (The 'One of a Kind' feature)
-    msg += f"💬 *[BANDAR ANALYTICS]*\n"
+    # QUANTITATIVE CONSENSUS
+    msg += f"💬 *[QUANT CONSENSUS]*\n"
     msg += f"_{narrative}_\n\n"
     
-    # ACTION PLAN
-    msg += f"🎯 *[STRATEGY PLAN]*\n"
+    # ACTION PLAN & RISK MANAGEMENT
+    msg += f"🎯 *[EXECUTION RULES]*\n"
     if direction == "BUY":
-        msg += f"Entry: `{format_rp(s['entry_low'])} — {format_rp(s['entry_high'])}`\n"
-        msg += f"Stop Loss: `{format_rp(s['stop_loss'])}` (Guard Level)\n"
-        msg += f"Targets: `{format_rp(s['target_1'])}` | `{format_rp(s['target_2'])}`\n"
+        msg += f"Entry Zone: `{format_rp(s['entry_low'])} — {format_rp(s['entry_high'])}`\n"
+        msg += f"Invalidation/Cutloss: `Daily Close < {format_rp(s['stop_loss'])}`\n"
+        msg += f"Take Profit targets: `{format_rp(s['target_1'])}` | `{format_rp(s['target_2'])}`\n"
     else:
-        msg += f"Exit Now: `{format_rp(s['close'])}` | Target Exit: `{format_rp(s['target_1'])}`\n"
-    msg += f"Risk: 2% Rule Applied\n\n"
+        msg += f"Exit Now: `{format_rp(s['close'])}` | Stop Invalidation: `{format_rp(s['target_1'])}`\n"
+    msg += f"Holding Period: `Swing (3-14 Trading Days)`\n"
+    msg += f"Risk Limit: `1-2% of Portfolio Equity`\n\n"
     
     # INTELLIGENCE CONVICTION
     conv_bar = draw_progress_bar(score, max_val=10)
-    msg += f"🧠 *[INTEL CONVICTION]*\n"
+    msg += f"⚖️ *[CONVICTION METRIC]*\n"
     msg += f"`{conv_bar}` {score:.1f}/10\n"
     layer_str = " ".join([f"✓{l}" if l in layers else f"✗{l}" for l in ['RSI', 'MACD', 'MA200', 'BEE-FLOW', 'Phase', 'Volatility']])
-    msg += f"Signals: {layer_str}\n\n"
+    msg += f"Triggers: {layer_str.replace('BEE-FLOW', 'SmartMoney')}\n\n"
     
-    msg += f"💡 Insight: {desc}\n"
+    msg += f"⚠️ *DISCLAIMER: Probabilistic edge, not a guarantee. False breakouts occur.*\n"
     
     return msg
 
@@ -731,9 +753,9 @@ def format_status_report(all_stocks_status, ihsg_data=None):
     bullish_stocks = [s for s in all_stocks_status if s['trend'] == 'BULLISH']
     bearish_stocks = [s for s in all_stocks_status if s['trend'] == 'BEARISH']
     
-    msg = f"📊 *[CINEMATIC INTELLIGENCE REPORT]*\n"
+    msg = f"📊 *[QUANTITATIVE INTELLIGENCE REPORT]*\n"
     msg += f"📅 {datetime.now(TIMEZONE).strftime('%d %b %Y, %H:%M WIB')}\n"
-    msg += f"📎 Core: V7.1 Universal | 24H Surveillance\n"
+    msg += f"📎 Core: Quant Alpha V8 | Institutional Screener\n"
     msg += "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
     
     # IHSG Macro Context
@@ -754,7 +776,7 @@ def format_status_report(all_stocks_status, ihsg_data=None):
             bee_bar = draw_progress_bar(s.get('bee_score', 0), max_val=5)
             pattern = f" | {s['pattern']}" if s.get('pattern') else ""
             msg += f"{i}. {sym} | `{format_rp(s['close'])}` | RSI:{int(s['rsi'])}{pattern}\n"
-            msg += f"   Energy: `{bee_bar}` {s.get('wyckoff_phase', 'N/A')}\n"
+            msg += f"   Strength: `{bee_bar}` {s.get('wyckoff_phase', 'N/A')}\n"
             msg += f"   S: `{format_rp(s.get('support', 0))}` | R: `{format_rp(s.get('resistance', 0))}`\n"
             
     # BEARISH ZONE (Top 5)
@@ -768,7 +790,7 @@ def format_status_report(all_stocks_status, ihsg_data=None):
             msg += f"   S: `{format_rp(s.get('support', 0))}` | R: `{format_rp(s.get('resistance', 0))}`\n"
             
     # BEE-FLOW RANKING
-    msg += f"\n🔍 *[BEE-FLOW CONVICTION]*\n"
+    msg += f"\n🔍 *[SMART MONEY PROXY]*\n"
     all_sorted = sorted(all_stocks_status, key=lambda x: x.get('bee_score', 0), reverse=True)
     top = [s for s in all_sorted if s.get('bee_score', 0) >= 4][:5]
     if top:
@@ -780,10 +802,10 @@ def format_status_report(all_stocks_status, ihsg_data=None):
         msg += "_Institutional flow is dormant._\n"
     
     # GEAR SUMMARY
-    msg += f"\n⚙️ *[GEAR SUMMARY]*\n"
+    msg += f"\n⚙️ *[SYSTEM SUMMARY]*\n"
     msg += f"✓ Universe: {len(all_stocks_status)} | Bullish: {len(bullish_stocks)} | Bearish: {len(bearish_stocks)}\n"
     
-    msg += "\n🎬 *[DIRECTOR'S CUT]*: Smart money logic applied. Surveillance continues in 2 hours.\n"
+    msg += "\n🔬 *[QUANTITATIVE CONSENSUS]*: Scan complete. Next check in 2 hours.\n"
     
     return msg
 
@@ -812,11 +834,35 @@ async def send_telegram(message, photo_path=None):
         print(f"Telegram error: {e}")
 
 # ============================================================
+# LOGGING (V8)
+# ============================================================
+
+def log_signal(symbol, signal_data):
+    """Log signals to a CSV file for professional backtesting and winrate calculation"""
+    filepath = "signal_logs.csv"
+    file_exists = os.path.isfile(filepath)
+    
+    s = signal_data['data']
+    try:
+        with open(filepath, 'a') as f:
+            if not file_exists:
+                f.write("Date,Symbol,Direction,Confidence,Score,Price,PE,PBV,Phase\n")
+            
+            date_str = datetime.now(TIMEZONE).strftime("%Y-%m-%d %H:%M")
+            pe = f"{s.get('pe_ratio', 0):.2f}" if s.get('pe_ratio') else "N/A"
+            pbv = f"{s.get('pbv', 0):.2f}" if s.get('pbv') else "N/A"
+            
+            row = f"{date_str},{symbol},{signal_data['direction']},{signal_data['confidence']},{signal_data['score']:.1f},{s['close']},{pe},{pbv},{s.get('wyckoff_phase', 'N/A')}\n"
+            f.write(row)
+    except Exception as e:
+        print(f"[{symbol}] Failed to log signal: {e}")
+
+# ============================================================
 # MAIN
 # ============================================================
 
 async def main():
-    print(f"=== Stock Notifier V5.1 (Professional) ({datetime.now(TIMEZONE).strftime('%Y-%m-%d %H:%M')}) ===")
+    print(f"=== Quant Alpha Engine V8 ({datetime.now(TIMEZONE).strftime('%Y-%m-%d %H:%M')}) ===")
     config = load_config()
     state = get_last_state()
     
@@ -860,6 +906,9 @@ async def main():
                 
                 await send_telegram(msg, photo_path=photo_path)
                 signals_sent_today.append(symbol)
+                
+                # Log to CSV for empiric tracking
+                log_signal(symbol, signal_data)
                 
                 state[symbol] = {
                     'signal': sig_type,
