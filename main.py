@@ -733,14 +733,13 @@ def format_status_report(all_stocks_status, ihsg_data=None):
     
     msg = f"📊 *[CINEMATIC INTELLIGENCE REPORT]*\n"
     msg += f"📅 {datetime.now(TIMEZONE).strftime('%d %b %Y, %H:%M WIB')}\n"
-    msg += f"📎 Core: V7 Engine | 24H Surveillance\n"
+    msg += f"📎 Core: V7.1 Universal | 24H Surveillance\n"
     msg += "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
     
     # IHSG Macro Context
     if ihsg_data:
         ihsg_pct = ihsg_data['pct_1d']
-        ihsg_icon = "🟢" if ihsg_pct >= 0 else "🔴"
-        ihsg_bar = draw_progress_bar((ihsg_pct + 2) * 2.5, max_val=10) # Normalized
+        ihsg_bar = draw_progress_bar((ihsg_pct + 2) * 2.5, max_val=10)
         msg += f"🏛️ *[GLOBAL MACRO PULSE]*\n"
         msg += f"IHSG: `{format_rp(ihsg_data['close'])}` ({'↑' if ihsg_pct >= 0 else '↓'} {abs(ihsg_pct):.1f}%)\n"
         msg += f"`{ihsg_bar}` Sentiment: `{ihsg_data['trend']}`\n\n"
@@ -749,20 +748,26 @@ def format_status_report(all_stocks_status, ihsg_data=None):
     msg += f"📈 *[BULLISH DYNAMICS]*\n"
     if not bullish_stocks:
         msg += "_No assets in markup phase._\n"
-    for i, s in enumerate(bullish_stocks, 1):
-        sym = s['symbol'].split('.')[0]
-        bee_bar = draw_progress_bar(s.get('bee_score', 0), max_val=5) # Mini bar
-        msg += f"{i}. {sym} | `{format_rp(s['close'])}` | `{bee_bar}`\n"
-        msg += f"   Phase: `{s.get('wyckoff_phase', 'N/A')}`\n"
+    else:
+        for i, s in enumerate(bullish_stocks, 1):
+            sym = s['symbol'].split('.')[0]
+            bee_bar = draw_progress_bar(s.get('bee_score', 0), max_val=5)
+            pattern = f" | {s['pattern']}" if s.get('pattern') else ""
+            msg += f"{i}. {sym} | `{format_rp(s['close'])}` | RSI:{int(s['rsi'])}{pattern}\n"
+            msg += f"   Energy: `{bee_bar}` {s.get('wyckoff_phase', 'N/A')}\n"
+            msg += f"   S: `{format_rp(s.get('support', 0))}` | R: `{format_rp(s.get('resistance', 0))}`\n"
             
-    msg += f"\n📉 *[BEARISH DYNAMICS]*\n"
+    # BEARISH ZONE (Top 5)
+    msg += f"\n📉 *[BEARISH DYNAMICS (Top 5)]*\n"
     if not bearish_stocks:
         msg += "_No assets in markdown phase._\n"
-    for i, s in enumerate(bearish_stocks, 1):
-        sym = s['symbol'].split('.')[0]
-        msg += f"{i}. {sym} | `{format_rp(s['close'])}`\n"
-        msg += f"   Phase: `{s.get('wyckoff_phase', 'N/A')}`\n"
+    else:
+        for i, s in enumerate(bearish_stocks[:5], 1):
+            sym = s['symbol'].split('.')[0]
+            msg += f"{i}. {sym} | `{format_rp(s['close'])}` | RSI:{int(s['rsi'])}\n"
+            msg += f"   S: `{format_rp(s.get('support', 0))}` | R: `{format_rp(s.get('resistance', 0))}`\n"
             
+    # BEE-FLOW RANKING
     msg += f"\n🔍 *[BEE-FLOW CONVICTION]*\n"
     all_sorted = sorted(all_stocks_status, key=lambda x: x.get('bee_score', 0), reverse=True)
     top = [s for s in all_sorted if s.get('bee_score', 0) >= 4][:5]
@@ -773,6 +778,10 @@ def format_status_report(all_stocks_status, ihsg_data=None):
             msg += f"• *{sym}*: `{bee_bar}` {s['bee_score']}/10\n"
     else:
         msg += "_Institutional flow is dormant._\n"
+    
+    # GEAR SUMMARY
+    msg += f"\n⚙️ *[GEAR SUMMARY]*\n"
+    msg += f"✓ Universe: {len(all_stocks_status)} | Bullish: {len(bullish_stocks)} | Bearish: {len(bearish_stocks)}\n"
     
     msg += "\n🎬 *[DIRECTOR'S CUT]*: Smart money logic applied. Surveillance continues in 2 hours.\n"
     

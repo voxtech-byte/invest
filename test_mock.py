@@ -88,12 +88,13 @@ def simulate_v7_dist():
     return format_alert(data), data
 
 def simulate_v7_report():
-    print("--- Simulating V7 CINEMATIC REPORT ---")
+    print("--- Simulating V7.1 CINEMATIC REPORT ---")
     ihsg = {'close': 6850, 'pct_1d': -0.3, 'trend': 'BEARISH'}
     stocks = [
-        {'symbol': 'BBCA.JK', 'close': 10450, 'trend': 'BULLISH', 'bee_score': 2, 'bee_label': 'DISTRIBUTION', 'wyckoff_phase': 'DISTRIBUTION', 'macd_hist': 12.0, 'pct_1d': -0.5},
-        {'symbol': 'ASII.JK', 'close': 6175, 'trend': 'BULLISH', 'bee_score': 9, 'bee_label': 'HIGH ACCUMULATION', 'wyckoff_phase': 'MARKUP', 'macd_hist': 15.5, 'pct_1d': 1.8},
-        {'symbol': 'PGAS.JK', 'close': 1700, 'trend': 'BULLISH', 'bee_score': 5, 'bee_label': 'MILD ACCUM', 'wyckoff_phase': 'ACCUMULATION', 'macd_hist': 2.1, 'pct_1d': 0.6},
+        {'symbol': 'BBCA.JK', 'close': 10450, 'trend': 'BULLISH', 'bee_score': 2, 'bee_label': 'DISTRIBUTION', 'wyckoff_phase': 'DISTRIBUTION', 'macd_hist': 12.0, 'pct_1d': -0.5, 'rsi': 65, 'support': 10000, 'resistance': 10800, 'pattern': 'Doji'},
+        {'symbol': 'ASII.JK', 'close': 6175, 'trend': 'BULLISH', 'bee_score': 9, 'bee_label': 'HIGH ACCUMULATION', 'wyckoff_phase': 'MARKUP', 'macd_hist': 15.5, 'pct_1d': 1.8, 'rsi': 52, 'support': 5675, 'resistance': 7475, 'pattern': ''},
+        {'symbol': 'PGAS.JK', 'close': 1700, 'trend': 'BULLISH', 'bee_score': 5, 'bee_label': 'MILD ACCUM', 'wyckoff_phase': 'ACCUMULATION', 'macd_hist': 2.1, 'pct_1d': 0.6, 'rsi': 45, 'support': 1600, 'resistance': 1850, 'pattern': 'Hammer'},
+        {'symbol': 'BBNI.JK', 'close': 3710, 'trend': 'BEARISH', 'bee_score': 1, 'bee_label': 'DISTRIBUTION', 'wyckoff_phase': 'MARKDOWN', 'macd_hist': -5.0, 'pct_1d': -1.2, 'rsi': 38, 'support': 3500, 'resistance': 4100, 'pattern': ''},
     ]
     return format_status_report(stocks, ihsg_data=ihsg), None
 
