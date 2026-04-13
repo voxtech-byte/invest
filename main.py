@@ -371,7 +371,7 @@ def evaluate_signals(symbol, df, config):
         support = last_row['Support_Level']
         resistance = last_row['Resistance_Level']
     except KeyError:
-        return None, "Indicators incomplete."
+        return None, None, "Indicators incomplete."
     
     # Safe access for optional indicators
     macd_hist = last_row.get(macd_hist_col)
@@ -385,8 +385,8 @@ def evaluate_signals(symbol, df, config):
     if atr_val is None or (atr_val is not None and pd.isna(atr_val)):
         atr_val = close * 0.02  # Fallback: 2% of price
         
-    if pd.isna(rsi) or pd.isna(ma50) or pd.isna(ma200) or pd.isna(vol_avg) or vol_avg == 0:
-        return None, "Data NaN"
+    if rsi is None or pd.isna(rsi) or ma50 is None or pd.isna(ma50) or ma200 is None or pd.isna(ma200) or vol_avg is None or pd.isna(vol_avg) or vol_avg == 0:
+        return None, None, "Data NaN or Missing"
 
     vol_ratio = volume / vol_avg
     is_downtrend_flag = is_downtrend(df, config)
