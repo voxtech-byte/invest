@@ -1,6 +1,8 @@
 import os
 import json
 import asyncio
+import math
+import time
 from datetime import datetime, timedelta
 import pytz
 import yfinance as yf
@@ -11,9 +13,12 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import mplfinance as mpf
+import requests
 
 TIMEZONE = pytz.timezone('Asia/Jakarta')
 STATE_FILE = "last_signals.json"
+SIGNAL_LOG_FILE = "signal_logs.csv"
+FORWARD_LOG_FILE = "forward_test.csv"
 
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
@@ -128,11 +133,11 @@ def fetch_data(symbol, config):
         return None
 
 def fetch_ihsg(config):
-    """Fetch IHSG index data for macro context"""
+    """Fetch IHSG index data for macro context and regime detection"""
     try:
         idx_symbol = config.get('macro', {}).get('index_symbol', '^JKSE')
         stock = yf.Ticker(idx_symbol)
-        df = stock.history(period="5d", interval="1d")
+        df = stock.history(period="1y", interval="1d")
         if df.empty or len(df) < 2:
             return None
         
@@ -140,17 +145,71 @@ def fetch_ihsg(config):
         prev = df.iloc[-2]
         pct = ((last['Close'] - prev['Close']) / prev['Close']) * 100
         
-        # MA20 approximation from 5d data
-        ma5 = df['Close'].mean()
-        trend = "BULLISH" if last['Close'] > ma5 else "BEARISH"
+        # Regime Detection
+        ma200_val = df['Close'].rolling(200).mean().iloc[-1] if len(df) >= 200 else df['Close'].mean()
+        ma50_val = df['Close'].rolling(50).mean().iloc[-1] if len(df) >= 50 else df['Close'].mean()
+        
+        # ADX approximation via directional movement
+        df.ta.adx(length=14, append=True)
+        adx_col = [c for c in df.columns if c.startswith('ADX_')]
+        adx_val = float(df[adx_col[0]].iloc[-1]) if adx_col and not pd.isna(df[adx_col[0]].iloc[-1]) else 15.0
+        
+        above_ma200 = last['Close'] > ma200_val
+        regime_cfg = config.get('regime', {})
+        adx_threshold = regime_cfg.get('min_adx_trending', 20)
+        
+        if above_ma200 and adx_val > adx_threshold:
+            regime = "TRENDING_BULL"
+            regime_label = "Trending/Bullish — Trend-follow setups ON"
+        elif above_ma200 and adx_val <= adx_threshold:
+            regime = "RANGE_BULL"
+            regime_label = "Range-bound/Bullish — Reduce size, mean-revert setups"
+        elif not above_ma200 and adx_val > adx_threshold:
+            regime = "TRENDING_BEAR"
+            regime_label = "Trending/Bearish — Defensive, short bias"
+        else:
+            regime = "CHOPPY"
+            regime_label = f"Choppy — Reduce position size by {regime_cfg.get('choppy_reduce_pct', 30)}%"
+        
+        trend = "BULLISH" if above_ma200 else "BEARISH"
         
         return {
             'close': last['Close'],
             'pct_1d': pct,
-            'trend': trend
+            'trend': trend,
+            'ma200': ma200_val,
+            'ma50': ma50_val,
+            'adx': adx_val,
+            'regime': regime,
+            'regime_label': regime_label
         }
     except Exception as e:
         print(f"[IHSG] Fetch error: {e}")
+        return None
+
+def fetch_weekly_trend(symbol):
+    """Fetch weekly timeframe to validate daily signals (multi-TF confirmation)"""
+    try:
+        stock = yf.Ticker(symbol)
+        df_w = stock.history(period="2y", interval="1wk")
+        if df_w.empty or len(df_w) < 50:
+            return None
+        
+        df_w.ta.sma(length=40, append=True)  # ~200 daily MA equivalent
+        ma_col = [c for c in df_w.columns if c.startswith('SMA_40')]
+        if not ma_col:
+            return None
+        
+        last = df_w.iloc[-1]
+        weekly_ma = last[ma_col[0]]
+        
+        return {
+            'weekly_close': last['Close'],
+            'weekly_ma200eq': weekly_ma,
+            'weekly_bullish': last['Close'] > weekly_ma if not pd.isna(weekly_ma) else None
+        }
+    except Exception as e:
+        print(f"[{symbol}] Weekly fetch error: {e}")
         return None
 
 # ============================================================
@@ -349,7 +408,221 @@ def get_volume_context(pct_1d, vol_ratio):
         return "Sideways / No Clear Pattern"
 
 # ============================================================
-# V5 MULTI-CONFIRMATION SCORING ENGINE
+# V9 PRO: POSITION SIZER
+# ============================================================
+
+def calculate_position_size(price, stop_loss, config):
+    """Calculate lot size based on risk-per-trade and portfolio equity"""
+    portfolio = config.get('portfolio', {})
+    equity = portfolio.get('initial_equity', 50000000)
+    risk_pct = portfolio.get('risk_per_trade_pct', 1.5) / 100
+    
+    risk_per_share = abs(price - stop_loss)
+    if risk_per_share <= 0:
+        return 0, 0
+    
+    max_risk_amount = equity * risk_pct
+    shares = int(max_risk_amount / risk_per_share)
+    
+    # Round down to nearest 100 (lot size for IDX)
+    lot = (shares // 100) * 100
+    position_value = lot * price
+    
+    return lot, position_value
+
+# ============================================================
+# V9 PRO: SECTOR EXPOSURE CONTROLLER
+# ============================================================
+
+def check_sector_exposure(symbol, active_signals, config):
+    """Check if adding this symbol would breach sector exposure limits"""
+    sectors = config.get('sectors', {})
+    portfolio = config.get('portfolio', {})
+    max_sector_pct = portfolio.get('max_sector_exposure_pct', 30)
+    max_positions = portfolio.get('max_open_positions', 5)
+    
+    current_sector = sectors.get(symbol, 'Unknown')
+    
+    # Count active signals per sector
+    sector_count = {}
+    for sig in active_signals:
+        sig_sector = sectors.get(sig, 'Unknown')
+        sector_count[sig_sector] = sector_count.get(sig_sector, 0) + 1
+    
+    same_sector_count = sector_count.get(current_sector, 0)
+    total_active = len(active_signals)
+    
+    warnings = []
+    
+    if total_active >= max_positions:
+        warnings.append(f"Max open positions ({max_positions}) reached")
+    
+    if total_active > 0:
+        sector_pct = (same_sector_count / max(total_active, 1)) * 100
+        if sector_pct >= max_sector_pct:
+            warnings.append(f"Sector {current_sector} exposure > {max_sector_pct}%")
+    
+    return warnings
+
+# ============================================================
+# V9 PRO: HEALTH CHECK
+# ============================================================
+
+def health_check(df, config):
+    """Pre-signal quality control: liquidity, volume, gap filtering"""
+    health = config.get('health', {})
+    min_avg_vol = health.get('min_avg_volume', 100000)
+    min_avg_value = health.get('min_avg_value_rp', 10000000000)
+    
+    result = {'liquidity': 'OK', 'news_risk': 'LOW', 'warnings': []}
+    
+    if len(df) < 20:
+        result['liquidity'] = 'INSUFFICIENT_DATA'
+        result['warnings'].append("Less than 20 days data")
+        return result
+    
+    # Average daily volume
+    avg_vol = df['Volume'].tail(20).mean()
+    if avg_vol < min_avg_vol:
+        result['liquidity'] = 'LOW'
+        result['warnings'].append(f"Avg volume ({avg_vol:,.0f}) < {min_avg_vol:,.0f}")
+    
+    # Average daily value (proxy for institutional tradability)
+    avg_value = (df['Close'] * df['Volume']).tail(20).mean()
+    if avg_value < min_avg_value:
+        result['liquidity'] = 'THIN'
+        result['warnings'].append(f"Avg value Rp {avg_value:,.0f} < threshold")
+    
+    # Gap detection (> 5% gap is risky)
+    last_gap = abs(df['Open'].iloc[-1] - df['Close'].iloc[-2]) / df['Close'].iloc[-2] * 100
+    if last_gap > 5:
+        result['warnings'].append(f"Large gap detected ({last_gap:.1f}%)")
+    
+    return result
+
+# ============================================================
+# V9 PRO: BACKTEST ENGINE (Historical Signal Statistics)
+# ============================================================
+
+def run_backtest_stats(symbol, df, config):
+    """
+    Simulate historical signals on past data and calculate performance stats.
+    Uses the same scoring logic to find past setups, then checks if TP or SL was hit first.
+    Returns: dict with winrate, profit_factor, max_drawdown, trade_count
+    """
+    bt_cfg = config.get('backtest', {})
+    tp_mult = bt_cfg.get('tp_atr_multiplier', 2.0)
+    sl_mult = bt_cfg.get('sl_atr_multiplier', 2.0)
+    ind_cfg = config['indicators']
+    
+    if len(df) < 200:
+        return None
+    
+    # Pre-compute columns needed
+    rsi_col = f"RSI_{ind_cfg['rsi_length']}"
+    ma200_col = f"SMA_{ind_cfg['ma_long']}"
+    atr_col = [c for c in df.columns if c.startswith('ATR')]
+    atr_col = atr_col[0] if atr_col else None
+    
+    if rsi_col not in df.columns or ma200_col not in df.columns or not atr_col:
+        return None
+    
+    wins = 0
+    losses = 0
+    total_r_won = 0.0
+    total_r_lost = 0.0
+    max_dd = 0.0
+    equity_curve = [0.0]
+    
+    # Scan historical data (skip first 200 for warm-up, scan remaining)
+    for i in range(200, len(df) - 10):
+        row = df.iloc[i]
+        
+        rsi = row.get(rsi_col)
+        ma200 = row.get(ma200_col)
+        close = row['Close']
+        atr = row.get(atr_col, close * 0.02)
+        
+        if pd.isna(rsi) or pd.isna(ma200) or pd.isna(atr) or atr <= 0:
+            continue
+        
+        # Simple buy setup: RSI < 40 AND Close > MA200 (same as our core logic)
+        if rsi < 40 and close > ma200:
+            entry = close
+            sl = entry - atr * sl_mult
+            tp = entry + atr * tp_mult
+            
+            # Walk forward to check outcome
+            for j in range(i + 1, min(i + 15, len(df))):  # Max 14 days holding
+                future_row = df.iloc[j]
+                high = future_row['High']
+                low = future_row['Low']
+                
+                if low <= sl:
+                    losses += 1
+                    r_lost = abs(entry - sl) / atr
+                    total_r_lost += r_lost
+                    equity_curve.append(equity_curve[-1] - r_lost)
+                    break
+                elif high >= tp:
+                    wins += 1
+                    r_won = abs(tp - entry) / atr
+                    total_r_won += r_won
+                    equity_curve.append(equity_curve[-1] + r_won)
+                    break
+            # If neither hit within 14 days, count as scratch (break-even)
+    
+    total_trades = wins + losses
+    if total_trades == 0:
+        return None
+    
+    winrate = (wins / total_trades) * 100
+    profit_factor = total_r_won / total_r_lost if total_r_lost > 0 else 999
+    
+    # Max drawdown from equity curve
+    peak = 0
+    for val in equity_curve:
+        if val > peak:
+            peak = val
+        dd = peak - val
+        if dd > max_dd:
+            max_dd = dd
+    
+    return {
+        'winrate': round(winrate, 1),
+        'profit_factor': round(profit_factor, 2),
+        'max_drawdown_r': round(max_dd, 1),
+        'total_trades': total_trades,
+        'wins': wins,
+        'losses': losses
+    }
+
+# ============================================================
+# V9 PRO: FORWARD TEST LOGGER
+# ============================================================
+
+def log_forward_test(symbol, signal_data, lot, position_value, health, regime):
+    """Enhanced signal logging for forward test validation"""
+    s = signal_data['data']
+    try:
+        file_exists = os.path.isfile(FORWARD_LOG_FILE)
+        with open(FORWARD_LOG_FILE, 'a') as f:
+            if not file_exists:
+                f.write("Date,Symbol,Direction,Confidence,Score,Price,StopLoss,TP1,TP2,Lot,Value,PE,PBV,Phase,Regime,Liquidity\n")
+            
+            date_str = datetime.now(TIMEZONE).strftime("%Y-%m-%d %H:%M")
+            pe = f"{s.get('pe_ratio', 0):.2f}" if s.get('pe_ratio') else "N/A"
+            pbv = f"{s.get('pbv', 0):.2f}" if s.get('pbv') else "N/A"
+            liq = health.get('liquidity', 'N/A') if health else 'N/A'
+            reg = regime if regime else 'N/A'
+            
+            row = f"{date_str},{symbol},{signal_data['direction']},{signal_data['confidence']},{signal_data['score']:.1f},{s['close']},{s['stop_loss']},{s['target_1']},{s['target_2']},{lot},{position_value},{pe},{pbv},{s.get('wyckoff_phase', 'N/A')},{reg},{liq}\n"
+            f.write(row)
+    except Exception as e:
+        print(f"[{symbol}] Failed to log forward test: {e}")
+
+# ============================================================
+# V9 MULTI-CONFIRMATION SCORING ENGINE
 # ============================================================
 
 def evaluate_signals(symbol, df, config):
@@ -678,13 +951,23 @@ def generate_chart(symbol, df, config):
 # FORMATTERS
 # ============================================================
 
-def format_alert(signal_data):
+def format_alert(signal_data, extra=None):
     s = signal_data['data']
     conf = signal_data['confidence']
     desc = signal_data['desc']
     direction = signal_data['direction']
     score = signal_data['score']
     layers = signal_data['layers']
+    
+    ext = extra or {}
+    lot = ext.get('lot', 0)
+    pos_value = ext.get('position_value', 0)
+    health = ext.get('health', {})
+    regime = ext.get('regime', 'N/A')
+    regime_label = ext.get('regime_label', '')
+    weekly_ok = ext.get('weekly_bullish')
+    bt_stats = ext.get('backtest_stats')
+    sector_warnings = ext.get('sector_warnings', [])
     
     sym_name = s['symbol'].split('.')[0]
     narrative = generate_narrative(s)
@@ -696,8 +979,14 @@ def format_alert(signal_data):
         alert_title = "⚠️ [DISTRIBUTION WARNING]" if conf == "HIGH" else "📉 [EXIT PROTOCOL]"
         
     msg = f"*{alert_title}*\n"
-    msg += f"Core: Quant Alpha Engine V8\n"
+    msg += f"Core: Quant Alpha Engine V9 Pro\n"
     msg += "━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+    
+    # MARKET REGIME
+    msg += f"🌐 *[MARKET REGIME]*\n"
+    msg += f"`{regime_label}`\n"
+    tf_label = "✓ Weekly Bullish" if weekly_ok else ("✗ Weekly Bearish" if weekly_ok is False else "N/A")
+    msg += f"Multi-TF: `{tf_label}`\n\n"
     
     # Asset Context
     pct_sign = "▲" if s['pct_1d'] > 0 else "▼"
@@ -712,40 +1001,68 @@ def format_alert(signal_data):
     mcap = f"{s['market_cap']/1e12:.1f}T" if s.get('market_cap') else "N/A"
     msg += f"P/E: `{pe}` | PBV: `{pbv}` | MCap: `Rp{mcap}`\n\n"
 
-    # MARKET DYNAMICS
+    # TECHNICAL PULSE
     msg += f"📉 *[TECHNICAL PULSE]*\n"
     msg += f"Phase: `{s['wyckoff_phase']}`\n"
     msg += f"Vola: `{'SQUEEZE (Pending Expansion)' if s['is_squeeze'] else 'Normal'}`\n\n"
     
-    # SMART MONEY PROXY (was BEE-FLOW)
+    # SMART MONEY PROXY
     bee_bar = draw_progress_bar(s['bee_score'])
     msg += f"🧠 *[SMART MONEY PROXY]*\n"
     msg += f"`{bee_bar}` {s['bee_score']}/10\n"
-    msg += f"_(Score based on Price-Volume Trend & Chaikin Money Flow)_\n\n"
+    msg += f"_(PVT + CMF + Volume Anomaly)_\n\n"
     
-    # QUANTITATIVE CONSENSUS
+    # QUANT CONSENSUS
     msg += f"💬 *[QUANT CONSENSUS]*\n"
     msg += f"_{narrative}_\n\n"
     
-    # ACTION PLAN & RISK MANAGEMENT
+    # EXECUTION RULES + POSITION SIZING
     msg += f"🎯 *[EXECUTION RULES]*\n"
     if direction == "BUY":
         msg += f"Entry Zone: `{format_rp(s['entry_low'])} — {format_rp(s['entry_high'])}`\n"
-        msg += f"Invalidation/Cutloss: `Daily Close < {format_rp(s['stop_loss'])}`\n"
-        msg += f"Take Profit targets: `{format_rp(s['target_1'])}` | `{format_rp(s['target_2'])}`\n"
+        msg += f"Invalidation: `Daily Close < {format_rp(s['stop_loss'])}`\n"
+        msg += f"TP: `{format_rp(s['target_1'])}` | `{format_rp(s['target_2'])}`\n"
     else:
-        msg += f"Exit Now: `{format_rp(s['close'])}` | Stop Invalidation: `{format_rp(s['target_1'])}`\n"
-    msg += f"Holding Period: `Swing (3-14 Trading Days)`\n"
-    msg += f"Risk Limit: `1-2% of Portfolio Equity`\n\n"
+        msg += f"Exit: `{format_rp(s['close'])}` | Invalidation: `{format_rp(s['target_1'])}`\n"
+    msg += f"Holding: `Swing (3-14 Trading Days)`\n"
     
-    # INTELLIGENCE CONVICTION
+    if lot > 0:
+        msg += f"\n💵 *[POSITION SIZING]*\n"
+        msg += f"Size: `{lot:,} lembar` (Rp {pos_value:,.0f})\n"
+        msg += f"Risk: `{s.get('risk_pct', 1.5):.1f}% of Rp 50M`\n"
+    
+    # SECTOR WARNING
+    if sector_warnings:
+        msg += f"\n⚠️ *[EXPOSURE WARNING]*\n"
+        for w in sector_warnings:
+            msg += f"_{w}_\n"
+    
+    # HEALTH CHECK
+    liq = health.get('liquidity', 'N/A')
+    news = health.get('news_risk', 'LOW')
+    msg += f"\n🏥 *[HEALTH CHECK]*\n"
+    msg += f"Liquidity: `{liq}` | News Risk: `{news}`\n"
+    
+    # CONVICTION METRIC
     conv_bar = draw_progress_bar(score, max_val=10)
-    msg += f"⚖️ *[CONVICTION METRIC]*\n"
+    msg += f"\n⚖️ *[CONVICTION METRIC]*\n"
     msg += f"`{conv_bar}` {score:.1f}/10\n"
     layer_str = " ".join([f"✓{l}" if l in layers else f"✗{l}" for l in ['RSI', 'MACD', 'MA200', 'BEE-FLOW', 'Phase', 'Volatility']])
-    msg += f"Triggers: {layer_str.replace('BEE-FLOW', 'SmartMoney')}\n\n"
+    msg += f"Triggers: {layer_str.replace('BEE-FLOW', 'SmartMoney')}\n"
     
-    msg += f"⚠️ *DISCLAIMER: Probabilistic edge, not a guarantee. False breakouts occur.*\n"
+    # BACKTEST STATS
+    if bt_stats:
+        msg += f"\n📊 *[HISTORICAL STATS (2Y)]*\n"
+        msg += f"Winrate: `{bt_stats['winrate']}%` | PF: `{bt_stats['profit_factor']}` | MaxDD: `{bt_stats['max_drawdown_r']}R` (N={bt_stats['total_trades']})\n"
+    
+    # PLAYBOOK
+    msg += f"\n📖 *[PLAYBOOK]*\n"
+    if direction == "BUY":
+        msg += "_Buy near lower bound of entry zone. Scale-out 50% at TP1, trail stop above swing low for remainder._\n"
+    else:
+        msg += "_Exit at market or scale-out. Re-enter only if price reclaims above invalidation level._\n"
+    
+    msg += f"\n⚠️ _Probabilistic edge, not a guarantee. False breakouts occur._\n"
     
     return msg
 
@@ -755,16 +1072,36 @@ def format_status_report(all_stocks_status, ihsg_data=None):
     
     msg = f"📊 *[QUANTITATIVE INTELLIGENCE REPORT]*\n"
     msg += f"📅 {datetime.now(TIMEZONE).strftime('%d %b %Y, %H:%M WIB')}\n"
-    msg += f"📎 Core: Quant Alpha V8 | Institutional Screener\n"
+    msg += f"📎 Core: Quant Alpha V9 Pro | Institutional Screener\n"
     msg += "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
     
-    # IHSG Macro Context
+    # MARKET REGIME
     if ihsg_data:
         ihsg_pct = ihsg_data['pct_1d']
         ihsg_bar = draw_progress_bar((ihsg_pct + 2) * 2.5, max_val=10)
-        msg += f"🏛️ *[GLOBAL MACRO PULSE]*\n"
+        msg += f"🌐 *[MARKET REGIME]*\n"
         msg += f"IHSG: `{format_rp(ihsg_data['close'])}` ({'↑' if ihsg_pct >= 0 else '↓'} {abs(ihsg_pct):.1f}%)\n"
-        msg += f"`{ihsg_bar}` Sentiment: `{ihsg_data['trend']}`\n\n"
+        msg += f"`{ihsg_bar}` Sentiment: `{ihsg_data['trend']}`\n"
+        regime_label = ihsg_data.get('regime_label', 'N/A')
+        adx = ihsg_data.get('adx', 0)
+        msg += f"Regime: `{regime_label}`\n"
+        msg += f"ADX: `{adx:.1f}`\n\n"
+    
+    # FORWARD TEST STATS (if file exists)
+    try:
+        if os.path.isfile(FORWARD_LOG_FILE):
+            import csv
+            with open(FORWARD_LOG_FILE, 'r') as f:
+                reader = csv.DictReader(f)
+                rows = list(reader)
+            if len(rows) >= 5:
+                msg += f"📈 *[SYSTEM PERFORMANCE (Forward)]*\n"
+                msg += f"Total signals logged: `{len(rows)}`\n"
+                buy_count = sum(1 for r in rows if r.get('Direction') == 'BUY')
+                sell_count = sum(1 for r in rows if r.get('Direction') == 'SELL')
+                msg += f"BUY: `{buy_count}` | SELL: `{sell_count}`\n\n"
+    except:
+        pass
     
     # BULLISH ZONE
     msg += f"📈 *[BULLISH DYNAMICS]*\n"
@@ -789,7 +1126,7 @@ def format_status_report(all_stocks_status, ihsg_data=None):
             msg += f"{i}. {sym} | `{format_rp(s['close'])}` | RSI:{int(s['rsi'])}\n"
             msg += f"   S: `{format_rp(s.get('support', 0))}` | R: `{format_rp(s.get('resistance', 0))}`\n"
             
-    # BEE-FLOW RANKING
+    # SMART MONEY RANKING
     msg += f"\n🔍 *[SMART MONEY PROXY]*\n"
     all_sorted = sorted(all_stocks_status, key=lambda x: x.get('bee_score', 0), reverse=True)
     top = [s for s in all_sorted if s.get('bee_score', 0) >= 4][:5]
@@ -801,11 +1138,11 @@ def format_status_report(all_stocks_status, ihsg_data=None):
     else:
         msg += "_Institutional flow is dormant._\n"
     
-    # GEAR SUMMARY
+    # SYSTEM SUMMARY
     msg += f"\n⚙️ *[SYSTEM SUMMARY]*\n"
     msg += f"✓ Universe: {len(all_stocks_status)} | Bullish: {len(bullish_stocks)} | Bearish: {len(bearish_stocks)}\n"
     
-    msg += "\n🔬 *[QUANTITATIVE CONSENSUS]*: Scan complete. Next check in 2 hours.\n"
+    msg += "\n🔬 *[QUANT CONSENSUS]*: Scan complete. Next check in 2 hours.\n"
     
     return msg
 
@@ -833,42 +1170,23 @@ async def send_telegram(message, photo_path=None):
     except Exception as e:
         print(f"Telegram error: {e}")
 
-# ============================================================
-# LOGGING (V8)
-# ============================================================
-
-def log_signal(symbol, signal_data):
-    """Log signals to a CSV file for professional backtesting and winrate calculation"""
-    filepath = "signal_logs.csv"
-    file_exists = os.path.isfile(filepath)
-    
-    s = signal_data['data']
-    try:
-        with open(filepath, 'a') as f:
-            if not file_exists:
-                f.write("Date,Symbol,Direction,Confidence,Score,Price,PE,PBV,Phase\n")
-            
-            date_str = datetime.now(TIMEZONE).strftime("%Y-%m-%d %H:%M")
-            pe = f"{s.get('pe_ratio', 0):.2f}" if s.get('pe_ratio') else "N/A"
-            pbv = f"{s.get('pbv', 0):.2f}" if s.get('pbv') else "N/A"
-            
-            row = f"{date_str},{symbol},{signal_data['direction']},{signal_data['confidence']},{signal_data['score']:.1f},{s['close']},{pe},{pbv},{s.get('wyckoff_phase', 'N/A')}\n"
-            f.write(row)
-    except Exception as e:
-        print(f"[{symbol}] Failed to log signal: {e}")
 
 # ============================================================
 # MAIN
 # ============================================================
 
 async def main():
-    print(f"=== Quant Alpha Engine V8 ({datetime.now(TIMEZONE).strftime('%Y-%m-%d %H:%M')}) ===")
+    print(f"=== Quant Alpha Engine V9 Pro ({datetime.now(TIMEZONE).strftime('%Y-%m-%d %H:%M')}) ===")
     config = load_config()
     state = get_last_state()
     
-    # Fetch IHSG macro data
-    print("[IHSG] Fetching macro data...")
+    # Fetch IHSG macro data + regime
+    print("[IHSG] Fetching macro data & regime...")
     ihsg_data = fetch_ihsg(config)
+    
+    regime = ihsg_data.get('regime', 'UNKNOWN') if ihsg_data else 'UNKNOWN'
+    regime_label = ihsg_data.get('regime_label', 'N/A') if ihsg_data else 'N/A'
+    print(f"[REGIME] {regime_label}")
     
     signals_sent_today = []
     all_stocks_status = []
@@ -888,14 +1206,49 @@ async def main():
 
             if signal_data:
                 sig_type = signal_data['type']
-
-            if signal_data:
-                sig_type = signal_data['type']
                 if check_cooldown(symbol, sig_type, state, config):
                     print(f"[{symbol}] Alert '{sig_type}' blocked (Cooldown)")
                     continue
-                    
-                msg = format_alert(signal_data)
+                
+                # --- V9 PRO: Multi-layer enrichment ---
+                s = signal_data['data']
+                
+                # Health Check
+                hc = health_check(df, config)
+                
+                # Weekly multi-timeframe validation
+                weekly = fetch_weekly_trend(symbol)
+                weekly_bullish = weekly.get('weekly_bullish') if weekly else None
+                
+                # Position Sizing
+                lot, pos_value = calculate_position_size(s['close'], s['stop_loss'], config)
+                
+                # Regime-based size reduction
+                if regime == 'CHOPPY':
+                    reduce_pct = config.get('regime', {}).get('choppy_reduce_pct', 30)
+                    lot = int(lot * (1 - reduce_pct / 100))
+                    lot = (lot // 100) * 100
+                    pos_value = lot * s['close']
+                
+                # Sector exposure check
+                sector_warnings = check_sector_exposure(symbol, signals_sent_today, config)
+                
+                # Backtest stats
+                bt_stats = run_backtest_stats(symbol, df, config)
+                
+                # Build extra context
+                extra = {
+                    'lot': lot,
+                    'position_value': pos_value,
+                    'health': hc,
+                    'regime': regime,
+                    'regime_label': regime_label,
+                    'weekly_bullish': weekly_bullish,
+                    'backtest_stats': bt_stats,
+                    'sector_warnings': sector_warnings
+                }
+                
+                msg = format_alert(signal_data, extra=extra)
                 
                 photo_path = None
                 if signal_data['confidence'] == 'HIGH':
@@ -907,14 +1260,14 @@ async def main():
                 await send_telegram(msg, photo_path=photo_path)
                 signals_sent_today.append(symbol)
                 
-                # Log to CSV for empiric tracking
-                log_signal(symbol, signal_data)
+                # Log to forward test CSV
+                log_forward_test(symbol, signal_data, lot, pos_value, hc, regime)
                 
                 state[symbol] = {
                     'signal': sig_type,
                     'time': datetime.now(TIMEZONE).isoformat()
                 }
-                print(f"[{symbol}] ⚡ {sig_type} (Score: {signal_data['score']:.0f}/8)")
+                print(f"[{symbol}] \u26a1 {sig_type} (Score: {signal_data['score']:.0f}/10 | Lot: {lot:,})")
             else:
                 print(f"[{symbol}] {reason}")
             

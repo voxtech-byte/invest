@@ -5,3 +5,4 @@ python-telegram-bot>=21.0.1
 pytz>=2024.1
 matplotlib
 mplfinance
+requests>=2.31.0

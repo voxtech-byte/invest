@@ -30,8 +30,8 @@ def create_mock_df():
     df = pd.DataFrame(data, index=dates)
     return df
 
-def simulate_v8_acc():
-    print("--- Simulating V8 [QUANT BUY ALERT] ---")
+def simulate_v9_acc():
+    print("--- Simulating V9 Pro [QUANT BUY ALERT] ---")
     data = {
         'type': 'STRONG_BUY', 'confidence': 'HIGH',
         'desc': 'Multiple confirmations align. Strong entry opportunity.',
@@ -53,45 +53,35 @@ def simulate_v8_acc():
             'support': 6000, 'resistance': 6800, 'atr': 85,
             'entry_low': 6100, 'entry_high': 6180,
             'stop_loss': 5900, 'target_1': 6450, 'target_2': 6800,
-            'rrr_1': 1.0, 'rrr_2': 2.3, 'risk_pct': 2.0,
+            'rrr_1': 1.0, 'rrr_2': 2.3, 'risk_pct': 1.5,
             'buy_score': 9.2, 'sell_score': 0, 'trend': 'BULLISH',
             'pe_ratio': 6.5, 'pbv': 1.1, 'market_cap': 250000000000000
         }
     }
-    return format_alert(data), data
-
-def simulate_v8_dist():
-    print("--- Simulating V8 [DISTRIBUTION WARNING] ---")
-    data = {
-        'type': 'WATCHLIST_SELL', 'confidence': 'MEDIUM',
-        'desc': 'Moderate sell signals. Consider risk management.',
-        'direction': 'SELL', 'score': 3.5,
-        'layers': {
-            'RSI': 'Overbought (75)',
-            'BEE-FLOW': 'Distribution (2/10)'
+    extra = {
+        'lot': 2700,
+        'position_value': 2700 * 6175,
+        'health': {'liquidity': 'OK', 'news_risk': 'LOW', 'warnings': []},
+        'regime': 'TRENDING_BULL',
+        'regime_label': 'Trending/Bullish — Trend-follow setups ON',
+        'weekly_bullish': True,
+        'backtest_stats': {
+            'winrate': 54.2, 'profit_factor': 1.62,
+            'max_drawdown_r': 4.8, 'total_trades': 142,
+            'wins': 77, 'losses': 65
         },
-        'data': {
-            'symbol': 'BBCA.JK', 'close': 10450, 'rsi': 75.0,
-            'ma200': 9800, 'ma50': 10100, 'vol': 45000000, 'vol_ratio': 1.8,
-            'pct_1d': -0.5, 'pattern': 'Shooting Star',
-            'vol_context': 'Institutional Distribution',
-            'wyckoff_phase': 'DISTRIBUTION (Institutions Selling)',
-            'bee_score': 2, 'bee_label': 'DISTRIBUTION',
-            'is_squeeze': False,
-            'macd_hist': -1.2, 'bb_lower': 9900, 'bb_upper': 10600,
-            'support': 10000, 'resistance': 10550, 'atr': 150,
-            'entry_low': 0, 'entry_high': 0,
-            'stop_loss': 10200, 'target_1': 9800, 'target_2': 9500,
-            'rrr_1': 0, 'rrr_2': 0, 'risk_pct': 2.0,
-            'buy_score': 0, 'sell_score': 3.5, 'trend': 'BULLISH',
-            'pe_ratio': 24.5, 'pbv': 5.1, 'market_cap': 1200000000000000
-        }
+        'sector_warnings': []
     }
-    return format_alert(data), data
+    return format_alert(data, extra=extra), data
 
-def simulate_v8_report():
-    print("--- Simulating V8 QUANTITATIVE REPORT ---")
-    ihsg = {'close': 6850, 'pct_1d': -0.3, 'trend': 'BEARISH'}
+def simulate_v9_report():
+    print("--- Simulating V9 Pro QUANTITATIVE REPORT ---")
+    ihsg = {
+        'close': 7500, 'pct_1d': 0.6, 'trend': 'BULLISH',
+        'ma200': 7200, 'ma50': 7350, 'adx': 25.4,
+        'regime': 'TRENDING_BULL',
+        'regime_label': 'Trending/Bullish — Trend-follow setups ON'
+    }
     stocks = [
         {'symbol': 'BBCA.JK', 'close': 10450, 'trend': 'BULLISH', 'bee_score': 2, 'bee_label': 'DISTRIBUTION', 'wyckoff_phase': 'DISTRIBUTION', 'macd_hist': 12.0, 'pct_1d': -0.5, 'rsi': 65, 'support': 10000, 'resistance': 10800, 'pattern': 'Doji'},
         {'symbol': 'ASII.JK', 'close': 6175, 'trend': 'BULLISH', 'bee_score': 9, 'bee_label': 'HIGH ACCUMULATION', 'wyckoff_phase': 'MARKUP', 'macd_hist': 15.5, 'pct_1d': 1.8, 'rsi': 52, 'support': 5675, 'resistance': 7475, 'pattern': ''},
@@ -101,8 +91,8 @@ def simulate_v8_report():
     return format_status_report(stocks, ihsg_data=ihsg), None
 
 async def run_test():
-    parser = argparse.ArgumentParser(description="V8 Quant Engine Mock Test")
-    parser.add_argument('--type', choices=['acc', 'dist', 'report'], default='acc')
+    parser = argparse.ArgumentParser(description="V9 Pro Quant Engine Mock Test")
+    parser.add_argument('--type', choices=['acc', 'report'], default='acc')
     parser.add_argument('--send-telegram', action='store_true')
     args = parser.parse_args()
 
@@ -110,17 +100,15 @@ async def run_test():
     photo_path = None
     
     if args.type == 'acc':
-        message, sig_data = simulate_v8_acc()
+        message, sig_data = simulate_v9_acc()
         config = load_config()
         df = create_mock_df()
         try:
             photo_path = generate_chart('ASII.JK', df, config)
         except Exception as e:
             print(f"Chart error: {e}")
-    elif args.type == 'dist':
-        message, _ = simulate_v8_dist()
     elif args.type == 'report':
-        message, _ = simulate_v8_report()
+        message, _ = simulate_v9_report()
 
     print("\n[PREVIEW]")
     print(message)

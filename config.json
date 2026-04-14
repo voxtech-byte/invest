@@ -7,6 +7,25 @@
     "ASII.JK", "UNTR.JK"
   ],
 
+  "sectors": {
+    "BBCA.JK": "Finance",
+    "BMRI.JK": "Finance",
+    "BRIS.JK": "Finance",
+    "BBNI.JK": "Finance",
+    "GOTO.JK": "Technology",
+    "BUKA.JK": "Technology",
+    "UNVR.JK": "Consumer",
+    "INDF.JK": "Consumer",
+    "KAEF.JK": "Healthcare",
+    "MERK.JK": "Healthcare",
+    "TLKM.JK": "Telecom",
+    "PGAS.JK": "Energy",
+    "WIKA.JK": "Infrastructure",
+    "PTBA.JK": "Mining",
+    "ASII.JK": "Automotive",
+    "UNTR.JK": "Automotive"
+  },
+
   "indicators": {
     "rsi_length": 14,
     "rsi_oversold": 30,
@@ -43,6 +62,35 @@
     "risk_per_trade_pct": 2.0,
     "strategy": "Swing Trading (3-14 Days)",
     "timeframe": "Daily"
+  },
+
+  "portfolio": {
+    "initial_equity": 50000000,
+    "max_sector_exposure_pct": 30,
+    "max_open_positions": 5,
+    "risk_per_trade_pct": 1.5
+  },
+
+  "regime": {
+    "ihsg_ma_period": 200,
+    "choppy_reduce_pct": 30,
+    "min_adx_trending": 20
+  },
+
+  "backtest": {
+    "lookback_years": 2,
+    "tp_atr_multiplier": 2.0,
+    "sl_atr_multiplier": 2.0
+  },
+
+  "health": {
+    "min_avg_value_rp": 10000000000,
+    "min_avg_volume": 100000
+  },
+
+  "api_keys": {
+    "alpha_vantage": "IR26X3CQQVSS3YTP",
+    "fcs_api": "jUBpyGPHo60si41whSdp7tM6mGNh"
   },
 
   "macro": {
