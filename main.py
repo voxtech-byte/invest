@@ -978,7 +978,8 @@ def format_alert(signal_data, extra=None):
     else:
         alert_title = "⚠️ [DISTRIBUTION WARNING]" if conf == "HIGH" else "📉 [EXIT PROTOCOL]"
         
-    msg = f"*{alert_title}*\n"
+    msg = "┏━━━━━━━━━━━━━━━━━━━━┓\n"
+    msg += f"*{alert_title}*\n"
     msg += f"Core: Quant Alpha Engine V9 Pro\n"
     msg += "━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
     
@@ -1063,6 +1064,7 @@ def format_alert(signal_data, extra=None):
         msg += "_Exit at market or scale-out. Re-enter only if price reclaims above invalidation level._\n"
     
     msg += f"\n⚠️ _Probabilistic edge, not a guarantee. False breakouts occur._\n"
+    msg += "┗━━━━━━━━━━━━━━━━━━━━┛\n"
     
     return msg
 
@@ -1070,7 +1072,8 @@ def format_status_report(all_stocks_status, ihsg_data=None):
     bullish_stocks = [s for s in all_stocks_status if s['trend'] == 'BULLISH']
     bearish_stocks = [s for s in all_stocks_status if s['trend'] == 'BEARISH']
     
-    msg = f"📊 *[QUANTITATIVE INTELLIGENCE REPORT]*\n"
+    msg = "┏━━━━━━━━━━━━━━━━━━━━┓\n"
+    msg += f"📊 *[QUANTITATIVE INTELLIGENCE REPORT]*\n"
     msg += f"📅 {datetime.now(TIMEZONE).strftime('%d %b %Y, %H:%M WIB')}\n"
     msg += f"📎 Core: Quant Alpha V9 Pro | Institutional Screener\n"
     msg += "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
@@ -1143,6 +1146,7 @@ def format_status_report(all_stocks_status, ihsg_data=None):
     msg += f"✓ Universe: {len(all_stocks_status)} | Bullish: {len(bullish_stocks)} | Bearish: {len(bearish_stocks)}\n"
     
     msg += "\n🔬 *[QUANT CONSENSUS]*: Scan complete. Next check in 2 hours.\n"
+    msg += "┗━━━━━━━━━━━━━━━━━━━━┛\n"
     
     return msg
 
