@@ -1,0 +1,19 @@
+# Secrets
+service_account.json
+
+# State & Logs
+active_positions.json
+portfolio_equity.json
+trade_history.csv
+forward_test.csv
+last_signals.json
+
+# Python
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+
+# Environment
+.env
+venv/
+.DS_Store

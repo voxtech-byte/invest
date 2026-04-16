@@ -888,8 +888,15 @@ def format_alert(signal_data, extra=None):
     
     # Quant Header
     sig_type = signal_data.get('type', '')
+    exec_status = ext.get('exec_status', 'SIGNAL')
+    
     if sig_type == "AUTO_TRADE_BUY":
-        alert_title = "🤖 [AUTO-TRADE EXECUTED]" if conf in ["HIGH", "MEDIUM"] else "🚨 [QUANT BUY ALERT]"
+        if exec_status == "EXECUTED":
+            alert_title = "🤖 [AUTO-TRADE EXECUTED]"
+        elif exec_status == "BLOCKED":
+            alert_title = "🛡️ [AUTO-TRADE BLOCKED]"
+        else:
+            alert_title = "🚨 [QUANT BUY ALERT]"
     elif sig_type == "ALERT_ONLY_BUY":
         alert_title = "👀 [ALERT ONLY — Manual Review]"
     elif direction == "SELL":
@@ -1135,8 +1142,12 @@ async def main():
     config = load_config()
     state = get_last_state()
     
+    gs_cfg = config.get('google_sheets', {})
     broker = MockBroker(initial_equity=config.get('portfolio', {}).get('initial_equity', 50000000))
-    logger = GoogleSheetsLogger()
+    logger = GoogleSheetsLogger(
+        sheet_id=gs_cfg.get('spreadsheet_id'), 
+        credentials_file=gs_cfg.get('credentials_file', 'service_account.json')
+    )
     
     # Check Exits for Open Positions first
     print("[EXECUTION] Checking Open Positions for Exit signals...")
@@ -1236,13 +1247,20 @@ async def main():
                 sector_warnings = check_sector_exposure(symbol, signals_sent_today, config)
                 
                 # Auto-Trade Execution
-                if sig_type == "AUTO_TRADE_BUY" and not sector_warnings and hc['liquidity'] != 'LOW':
-                    print(f"[{symbol}] Executing AUTO-TRADE BUY...")
-                    success, res = broker.execute_buy(symbol, s['close'], lot, reason=f"Conviction {signal_data['score']:.1f}")
-                    if success:
-                        logger.log_trade(symbol, "BUY", s['close'], lot, conviction=signal_data['score'], reason="Auto-Trade Signal")
+                exec_status = "PENDING"
+                if sig_type == "AUTO_TRADE_BUY":
+                    if not sector_warnings and hc['liquidity'] != 'LOW':
+                        print(f"[{symbol}] Executing AUTO-TRADE BUY...")
+                        success, res = broker.execute_buy(symbol, s['close'], lot, reason=f"Conviction {signal_data['score']:.1f}")
+                        if success:
+                            logger.log_trade(symbol, "BUY", s['close'], lot, conviction=signal_data['score'], reason="Auto-Trade Signal")
+                            exec_status = "EXECUTED"
+                        else:
+                            print(f"[{symbol}] Execution Failed: {res}")
+                            exec_status = "FAILED"
                     else:
-                        print(f"[{symbol}] Execution Failed: {res}")
+                        print(f"[{symbol}] Auto-Trade Blocked by Safety Gates")
+                        exec_status = "BLOCKED"
                 
                 # Backtest stats
                 bt_stats = run_backtest_stats(symbol, df, config)
@@ -1256,7 +1274,8 @@ async def main():
                     'regime_label': regime_label,
                     'weekly_bullish': weekly_bullish,
                     'backtest_stats': bt_stats,
-                    'sector_warnings': sector_warnings
+                    'sector_warnings': sector_warnings,
+                    'exec_status': exec_status
                 }
                 
                 msg = format_alert(signal_data, extra=extra)
@@ -1290,8 +1309,16 @@ async def main():
             report = format_status_report(all_stocks_status, ihsg_data=ihsg_data, broker=broker)
             await send_telegram(report)
             
+    # Calculate portfolio stats for logging
+    total_unrealized_pnl = 0
+    open_positions = broker.get_open_positions()
+    for sym, pos in open_positions.items():
+        status = next((s for s in all_stocks_status if s['symbol'] == sym), None)
+        if status:
+            total_unrealized_pnl += (status['close'] - pos['avg_price']) * pos['quantity']
+
     # Log portfolio snapshot
-    logger.log_portfolio(broker.get_balance(), len(broker.get_open_positions()))
+    logger.log_portfolio(broker.get_balance(), len(open_positions), total_unrealized_pnl)
             
     save_state(state)
     print("=== Scan Complete ===")
