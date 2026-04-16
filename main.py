@@ -996,7 +996,7 @@ def format_alert(signal_data, extra=None):
     
     return msg
 
-def format_status_report(all_stocks_status, ihsg_data=None):
+def format_status_report(all_stocks_status, ihsg_data=None, broker=None):
     bullish_stocks = [s for s in all_stocks_status if s['trend'] == 'BULLISH']
     bearish_stocks = [s for s in all_stocks_status if s['trend'] == 'BEARISH']
     
@@ -1069,11 +1069,34 @@ def format_status_report(all_stocks_status, ihsg_data=None):
     else:
         msg += "_Institutional flow is dormant._\n"
     
-    # SYSTEM SUMMARY
-    msg += f"\n⚙️ *[SYSTEM SUMMARY]*\n"
-    msg += f"✓ Universe: {len(all_stocks_status)} | Bullish: {len(bullish_stocks)} | Bearish: {len(bearish_stocks)}\n"
-    
-    msg += "\n🔬 *[QUANT CONSENSUS]*: Scan complete. Next check in 2 hours.\n"
+    # MOCK PORTFOLIO STATUS
+    if broker:
+        balance = broker.get_balance()
+        positions = broker.get_open_positions()
+        
+        msg += f"\n💰 *[MOCK PORTFOLIO STATUS]*\n"
+        msg += f"Cash Balance: `{format_rp(balance)}`\n"
+        msg += f"Open Positions: `{len(positions)}` / 5\n"
+        
+        if positions:
+            total_unrealized_pnl = 0
+            for sym, pos in positions.items():
+                current_price = pos.get('avg_price', 0) # Fallback
+                # Try to get latest price from status summary
+                status = next((s for s in all_stocks_status if s['symbol'] == sym), None)
+                if status:
+                    current_price = status['close']
+                
+                pnl_pct = ((current_price - pos['avg_price']) / pos['avg_price']) * 100
+                total_unrealized_pnl += (current_price - pos['avg_price']) * pos['quantity']
+                
+                msg += f"• *{sym.split('.')[0]}*: {format_rp(current_price)} ({'▲' if pnl_pct >=0 else '▼'} {abs(pnl_pct):.1f}%)\n"
+            
+            msg += f"Unrealized P/L: `{format_rp(total_unrealized_pnl)}`\n"
+        else:
+            msg += "_Portfolio is currently all cash._\n"
+
+    msg += "\n🔬 *[QUANT CONSENSUS]*: Scan complete. Next check in 15 mins.\n"
     msg += "┗━━━━━━━━━━━━━━━━━━━━┛\n"
     
     return msg
@@ -1264,7 +1287,7 @@ async def main():
     if config['signals']['send_status_report_if_no_alerts']:
         if len(all_stocks_status) > 0:
             print(f"\n>> Session {now.hour}:00 WIB. Sending Market Status Report...")
-            report = format_status_report(all_stocks_status, ihsg_data=ihsg_data)
+            report = format_status_report(all_stocks_status, ihsg_data=ihsg_data, broker=broker)
             await send_telegram(report)
             
     # Log portfolio snapshot
