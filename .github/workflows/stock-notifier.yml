@@ -29,7 +29,7 @@ jobs:
           pip install -r requirements.txt
           
       - name: Inject Google Sheets Credentials
-        run: echo "${{ secrets.GOOGLE_SHEETS_CREDENTIALS }}" > service_account.json
+        run: echo "${{ secrets.GOOGLE_SHEETS_CREDENTIALS }}" | base64 --decode > service_account.json
 
       - name: Run Auto-Trade Engine
         env:
