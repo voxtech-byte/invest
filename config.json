@@ -100,5 +100,34 @@
   "telegram": {
     "use_emoji": true,
     "status_report_format": "detailed"
+  },
+
+  "execution": {
+    "auto_trade_threshold": 6.5,
+    "alert_only_threshold": 4.5,
+    "aggressive_threshold": 8.5,
+    "moderate_threshold": 7.0,
+    "conservative_threshold": 6.5,
+    "max_hold_days": 14,
+    "force_exit_days": 21,
+    "tp1_scale_out_pct": 50,
+    "tp2_scale_out_pct": 25,
+    "trailing_stop_remainder_pct": 25
+  },
+
+  "safety": {
+    "daily_loss_limit_pct": 5.0,
+    "max_concurrent_positions": 5,
+    "circuit_breaker_ihsg_pct": 2.0,
+    "max_single_trade_equity_pct": 50,
+    "min_liquidity_for_auto": "OK"
+  },
+
+  "conviction_weights": {
+    "smart_money": 0.35,
+    "trend": 0.25,
+    "rsi_phase": 0.20,
+    "volatility": 0.15,
+    "macro": 0.05
   }
 }

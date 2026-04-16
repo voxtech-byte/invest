@@ -14,6 +14,8 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import mplfinance as mpf
 import requests
+from mock_broker import MockBroker
+from google_sheets_logger import GoogleSheetsLogger
 
 TIMEZONE = pytz.timezone('Asia/Jakarta')
 STATE_FILE = "last_signals.json"
@@ -262,6 +264,9 @@ def calculate_indicators(df, config):
     # Volume Average
     df['Vol_Avg'] = df['Volume'].rolling(window=ind_cfg['volume_avg_period']).mean()
     
+    # ADX (Average Directional Index) - for trend strength
+    df.ta.adx(length=14, append=True)
+    
     # Support & Resistance (High/Low dari N hari terakhir)
     sr_days = ind_cfg['sr_lookback_days']
     df['Support_Level'] = df['Low'].rolling(window=sr_days, min_periods=1).min()
@@ -411,24 +416,48 @@ def get_volume_context(pct_1d, vol_ratio):
 # V9 PRO: POSITION SIZER
 # ============================================================
 
-def calculate_position_size(price, stop_loss, config):
-    """Calculate lot size based on risk-per-trade and portfolio equity"""
-    portfolio = config.get('portfolio', {})
-    equity = portfolio.get('initial_equity', 50000000)
-    risk_pct = portfolio.get('risk_per_trade_pct', 1.5) / 100
+def calculate_position_size(price, stop_loss, conviction_score, config):
+    """
+    V9 PRO: Position Sizer
+    Calculate lot size based on risk-per-trade tiers driven by conviction score.
     
+    Tiers:
+    - 9.0–10.0: 4.0% risk (FULL)
+    - 7.5–8.9: 2.5% risk
+    - 6.5–7.4: 1.5% risk
+    - 4.5–6.4: 0.75% risk (Alert only)
+    - < 4.5: SKIP
+    """
+    portfolio = config.get('portfolio', {})
+    initial_equity = portfolio.get('initial_equity', 50000000)
+    
+    # Determine risk % based on conviction score
+    if conviction_score >= 9.0:
+        risk_pct = 4.0
+    elif conviction_score >= 7.5:
+        risk_pct = 2.5
+    elif conviction_score >= 6.5:
+        risk_pct = 1.5
+    elif conviction_score >= 4.5:
+        risk_pct = 0.75
+    else:
+        return 0, 0, 0 # Skip
+        
+    risk_amount = initial_equity * (risk_pct / 100)
+    
+    # Stop loss distance
     risk_per_share = abs(price - stop_loss)
     if risk_per_share <= 0:
-        return 0, 0
-    
-    max_risk_amount = equity * risk_pct
-    shares = int(max_risk_amount / risk_per_share)
+        # Fallback to 5% stop if data is weird
+        risk_per_share = price * 0.05
+        
+    shares = int(risk_amount / risk_per_share)
     
     # Round down to nearest 100 (lot size for IDX)
     lot = (shares // 100) * 100
     position_value = lot * price
     
-    return lot, position_value
+    return lot, position_value, risk_pct
 
 # ============================================================
 # V9 PRO: SECTOR EXPOSURE CONTROLLER
@@ -625,9 +654,17 @@ def log_forward_test(symbol, signal_data, lot, position_value, health, regime):
 # V9 MULTI-CONFIRMATION SCORING ENGINE
 # ============================================================
 
-def evaluate_signals(symbol, df, config):
+def evaluate_signals(symbol, df, config, ihsg_data=None):
+    """
+    V9 PRO: Weighted Conviction Scoring Engine
+    Weighted Formula:
+    - Smart Money Proxy: 35%
+    - Trend Confirmation: 25%
+    - RSI/Phase Alignment: 20%
+    - Volatility Check: 15%
+    - Macro Regime Fit: 5%
+    """
     last_row = df.iloc[-1]
-    prev_row = df.iloc[-2] if len(df) > 1 else last_row
     
     ind_cfg = config['indicators']
     sig_cfg = config['signals']
@@ -636,241 +673,113 @@ def evaluate_signals(symbol, df, config):
     ma50_col = f"SMA_{ind_cfg['ma_short']}"
     ma200_col = f"SMA_{ind_cfg['ma_long']}"
     rsi_col = f"RSI_{ind_cfg['rsi_length']}"
-    macd_hist_col = f"MACDh_{ind_cfg['macd_fast']}_{ind_cfg['macd_slow']}_{ind_cfg['macd_signal']}"
-    bb_lower_col = f"BBL_{ind_cfg['bb_period']}_{ind_cfg['bb_std']}"
-    bb_upper_col = f"BBU_{ind_cfg['bb_period']}_{ind_cfg['bb_std']}"
+    adx_col = [c for c in df.columns if c.startswith('ADX_14')]
+    cmf_col = [c for c in df.columns if c.startswith('CMF_20')]
+    pvt_col = [c for c in df.columns if c.startswith('PVT')]
     atr_col = f"ATRr_{ind_cfg['atr_period']}"
     
     try:
         close = last_row['Close']
-        prev_close = prev_row['Close']
         volume = last_row['Volume']
         vol_avg = last_row['Vol_Avg']
         rsi = last_row[rsi_col]
         ma50 = last_row[ma50_col]
         ma200 = last_row[ma200_col]
         pct_1d = last_row['Pct_Change_1D']
-        pct_5d = last_row['Pct_Change_5D']
-        drop_peak = last_row['Drop_From_Peak_Pct']
         support = last_row['Support_Level']
         resistance = last_row['Resistance_Level']
+        
+        adx = last_row[adx_col[0]] if adx_col else 0
+        cmf = last_row[cmf_col[0]] if cmf_col else 0
+        pvt = last_row[pvt_col[0]] if pvt_col else 0
     except KeyError:
         return None, None, "Indicators incomplete."
-    
-    # Safe access for optional indicators
-    macd_hist = last_row.get(macd_hist_col)
-    bb_lower = last_row.get(bb_lower_col)
-    bb_upper = last_row.get(bb_upper_col)
-    
-    # ATR — try multiple column name formats
-    atr_val = last_row.get(atr_col)
-    if atr_val is None or (atr_val is not None and pd.isna(atr_val)):
-        atr_val = last_row.get(f"ATR_{ind_cfg['atr_period']}")
-    if atr_val is None or (atr_val is not None and pd.isna(atr_val)):
-        atr_val = close * 0.02  # Fallback: 2% of price
         
-    if rsi is None or pd.isna(rsi) or ma50 is None or pd.isna(ma50) or ma200 is None or pd.isna(ma200) or vol_avg is None or pd.isna(vol_avg) or vol_avg == 0:
-        return None, None, "Data NaN or Missing"
-
-    vol_ratio = volume / vol_avg
-    is_downtrend_flag = is_downtrend(df, config)
-    candle_pattern = detect_candles(df)
-    vol_context = get_volume_context(pct_1d, vol_ratio)
+    # --- BUY CONVICTION COMPONENTS ---
+    # 1. Smart Money Proxy (35%)
+    sm_score = 0
+    if vol_ratio > 2.5: sm_score += 0.4
+    elif vol_ratio > 1.5: sm_score += 0.2
+    if cmf > 0: sm_score += 0.3
+    if pvt > df['PVT'].tail(5).mean(): sm_score += 0.3
+    sm_weight = 0.35 * min(1.0, sm_score) * 10
     
-    # NEW V6: Market Intelligence
+    # 2. Trend Confirmation (25%)
+    trend_score = 0
+    if close > ma200: trend_score += 0.5
+    if adx > 30: trend_score += 0.5
+    elif adx > 20: trend_score += 0.2
+    trend_weight = 0.25 * trend_score * 10
+    
+    # 3. RSI/Phase Alignment (20%)
     wyckoff_phase = detect_wyckoff_phase(df)
-    bee_score, bee_label = calculate_bee_flow(df)
+    rp_score = 0
+    if 45 <= rsi <= 75: rp_score += 0.5
+    if "MARKUP" in wyckoff_phase or "ACCUMULATION" in wyckoff_phase: rp_score += 0.5
+    rp_weight = 0.20 * rp_score * 10
     
-    # Squeeze Detection
-    bb_width = last_row.get('BB_Width', 1.0)
-    is_squeeze = bb_width < (df['BB_Width'].tail(20).mean() * 0.8)
+    # 4. Volatility Check (15%)
+    atr = last_row.get(atr_col)
+    if atr is None or pd.isna(atr): atr = close * 0.02
+    atr_pct = (atr / close) * 100
+    
+    vol_check_score = 0
+    if atr_pct < 3.0: vol_check_score = 1.0
+    elif atr_pct < 5.0: vol_check_score = 0.5
+    vol_weight = 0.15 * vol_check_score * 10
+    
+    # 5. Macro Regime Fit (5%)
+    macro_score = 0
+    if ihsg_data and ihsg_data.get('trend') == 'BULLISH': macro_score = 1.0
+    macro_weight = 0.05 * macro_score * 10
+    
+    final_conviction = sm_weight + trend_weight + rp_weight + vol_weight + macro_weight
+    
+    signal_type = None
+    confidence = "LOW"
+    if final_conviction >= 6.5:
+        signal_type = "AUTO_TRADE_BUY"
+        confidence = "HIGH" if final_conviction >= 8.5 else "MEDIUM"
+    elif final_conviction >= 4.5:
+        signal_type = "ALERT_ONLY_BUY"
+        confidence = "LOW"
+        
+    if not signal_type:
+        return None, None, f"Conviction too low ({final_conviction:.1f})"
 
-    # ========== SCORING: BUY side ==========
-    buy_score = 0
-    buy_layers = {}
-    
-    # BEE-FLOW Bonus (Institutional Confirmation)
-    if bee_score >= 7:
-        buy_score += 1.5
-        buy_layers['BEE-FLOW'] = f"Institutional Accumulation ({bee_score}/10)"
-    elif bee_score >= 5:
-        buy_score += 0.5
-        buy_layers['BEE-FLOW'] = "Mild Bee Flow"
-
-    # Wyckoff Bonus
-    if "ACCUMULATION" in wyckoff_phase or "MARKUP" in wyckoff_phase:
-        buy_score += 1
-        buy_layers['Phase'] = wyckoff_phase
-
-    # Squeeze Bonus
-    if is_squeeze:
-        buy_score += 0.5
-        buy_layers['Volatility'] = "Squeeze (High Potential)"
-    
-    if rsi < ind_cfg['rsi_oversold']:
-        buy_score += 1
-        buy_layers['RSI'] = f"Oversold ({rsi:.0f})"
-    elif rsi < 40:
-        buy_score += 0.5
-        buy_layers['RSI'] = f"Low Zone ({rsi:.0f})"
-    
-    if close > ma200 and (abs(close - ma50) / ma50) <= ind_cfg['price_dip_touch_ma50']:
-        buy_score += 1
-        buy_layers['MA50'] = "Support Test"
-    
-    if close > ma200:
-        buy_score += 1
-        buy_layers['MA200'] = "Uptrend"
-    
-    if vol_ratio >= ind_cfg['volume_spike_strong']:
-        buy_score += 1
-        buy_layers['Volume'] = f"Spike ({vol_ratio:.1f}x)"
-    elif vol_ratio >= ind_cfg['volume_spike_mild']:
-        buy_score += 0.5
-        buy_layers['Volume'] = f"Above Avg ({vol_ratio:.1f}x)"
-    
-    if macd_hist is not None and not pd.isna(macd_hist):
-        prev_hist = prev_row.get(macd_hist_col)
-        if macd_hist > 0:
-            buy_score += 1
-            buy_layers['MACD'] = "Bullish"
-        elif prev_hist is not None and not pd.isna(prev_hist) and macd_hist > prev_hist:
-            buy_score += 0.5
-            buy_layers['MACD'] = "Improving"
-    
-    if bb_lower is not None and not pd.isna(bb_lower):
-        if close <= bb_lower:
-            buy_score += 1
-            buy_layers['BB'] = "Below Lower Band"
-        elif (close - bb_lower) / close <= 0.02:
-            buy_score += 0.5
-            buy_layers['BB'] = "Near Lower Band"
-    
-    if (abs(close - support) / close) <= 0.03:
-        buy_score += 1
-        buy_layers['S/R'] = f"Near Support ({format_rp(support)})"
-    
-    if candle_pattern and any(p in candle_pattern for p in ["Hammer", "Engulfing"]):
-        buy_score += 1
-        buy_layers['Candle'] = candle_pattern
-    elif candle_pattern:
-        buy_score += 0.5
-        buy_layers['Candle'] = candle_pattern
-
-    # ========== SCORING: SELL side ==========
-    sell_score = 0
-    sell_layers = {}
-    
-    if rsi > ind_cfg['rsi_overbought']:
-        sell_score += 1
-        sell_layers['RSI'] = f"Overbought ({rsi:.0f})"
-    elif rsi > 60:
-        sell_score += 0.5
-        sell_layers['RSI'] = f"High Zone ({rsi:.0f})"
-    
-    if close < ma200:
-        sell_score += 1
-        sell_layers['MA200'] = "Below MA200"
-    if close < ma200 and prev_close > ma200:
-        sell_score += 1
-        sell_layers['MA200'] = "Fresh Breakdown!"
-    
-    if vol_ratio >= ind_cfg['volume_spike_mild'] and pct_1d < 0:
-        sell_score += 1
-        sell_layers['Volume'] = f"Distribution ({vol_ratio:.1f}x)"
-    
-    if macd_hist is not None and not pd.isna(macd_hist):
-        if macd_hist < 0:
-            sell_score += 1
-            sell_layers['MACD'] = "Bearish"
-    
-    if bb_upper is not None and not pd.isna(bb_upper):
-        if close >= bb_upper:
-            sell_score += 1
-            sell_layers['BB'] = "Above Upper Band"
-    
-    if (abs(close - resistance) / close) <= 0.03:
-        sell_score += 1
-        sell_layers['S/R'] = f"Near Resistance ({format_rp(resistance)})"
-
-    # ========== TRADING PLAN CALCULATION ==========
-    risk_pct = risk_cfg.get('risk_per_trade_pct', 2.0)
-    
-    # Entry/SL/TP for BUY
-    entry_low = round(close - atr_val * 0.3, 0)
-    entry_high = round(close + atr_val * 0.3, 0)
-    stop_loss = round(max(support, close - atr_val * 2), 0)
-    target_1 = round(min(resistance, close + atr_val * 2), 0)
-    target_2 = round(close + atr_val * 3, 0)
+    # Entry Zones & Targets
+    entry_low = round(close - atr * 0.3, 0)
+    entry_high = round(close + atr * 0.3, 0)
+    stop_loss = round(max(support, close - atr * 2), 0)
+    target_1 = round(min(resistance, close + atr * 2), 0)
+    target_2 = round(close + atr * 4, 0)
     
     # RRR calculation
     risk_amount = close - stop_loss
-    reward_1 = target_1 - close
-    reward_2 = target_2 - close
-    rrr_1 = round(reward_1 / risk_amount, 1) if risk_amount > 0 else 0
-    rrr_2 = round(reward_2 / risk_amount, 1) if risk_amount > 0 else 0
-    
-    # Determine dominant direction & signal
-    signal = None
-    confidence = None
-    desc = None
-    layers = {}
-    score = 0
-    direction = "NEUTRAL"
-    
-    min_watchlist = sig_cfg['min_conviction_watchlist']
-    min_alert = sig_cfg['min_conviction_alert']
-    
-    if buy_score >= min_watchlist and buy_score > sell_score and not is_downtrend_flag:
-        direction = "BUY"
-        score = buy_score
-        layers = buy_layers
-        
-        if score >= min_alert:
-            signal = "STRONG_BUY"
-            confidence = "HIGH"
-            desc = "Multiple confirmations align. Strong entry opportunity."
-        else:
-            signal = "WATCHLIST_BUY"
-            confidence = "MEDIUM"
-            desc = "Moderate buy signals. Monitor for additional confirmation."
-            
-    elif sell_score >= min_watchlist and sell_score > buy_score:
-        direction = "SELL"
-        score = sell_score
-        layers = sell_layers
-        
-        if score >= min_alert:
-            signal = "STRONG_SELL"
-            confidence = "HIGH"
-            desc = "Multiple bearish confirmations. Cut loss / take profit recommended."
-        else:
-            signal = "WATCHLIST_SELL"
-            confidence = "MEDIUM"
-            desc = "Moderate sell signals. Consider risk management."
+    rrr_1 = round((target_1 - close) / risk_amount, 1) if risk_amount > 0 else 0
+    rrr_2 = round((target_2 - close) / risk_amount, 1) if risk_amount > 0 else 0
 
-    # Status Compilation
+    bee_score, bee_label = calculate_bee_flow(df)
+    is_squeeze = (last_row.get('BB_Width', 1.0) < (df['BB_Width'].tail(20).mean() * 0.8))
+
     status_summary = {
         'symbol': symbol,
         'close': close,
+        'conviction': round(final_conviction, 1),
         'rsi': rsi,
-        'ma200': ma200,
-        'ma50': ma50,
+        'adx': adx,
         'vol': volume,
         'vol_ratio': vol_ratio,
         'pct_1d': pct_1d,
-        'pattern': candle_pattern,
-        'vol_context': vol_context,
+        'phase': wyckoff_phase,
         'wyckoff_phase': wyckoff_phase,
         'bee_score': bee_score,
         'bee_label': bee_label,
         'is_squeeze': is_squeeze,
-        'macd_hist': macd_hist if macd_hist is not None and not pd.isna(macd_hist) else 0,
-        'bb_lower': bb_lower if bb_lower is not None and not pd.isna(bb_lower) else 0,
-        'bb_upper': bb_upper if bb_upper is not None and not pd.isna(bb_upper) else 0,
+        'atr_pct': atr_pct,
+        'atr': atr,
         'support': support,
         'resistance': resistance,
-        'atr': atr_val,
         'entry_low': entry_low,
         'entry_high': entry_high,
         'stop_loss': stop_loss,
@@ -878,28 +787,27 @@ def evaluate_signals(symbol, df, config):
         'target_2': target_2,
         'rrr_1': rrr_1,
         'rrr_2': rrr_2,
-        'risk_pct': risk_pct,
-        'buy_score': buy_score,
-        'sell_score': sell_score,
+        'direction': "BUY",
+        'ma200': ma200,
         'trend': 'BULLISH' if close > ma200 else 'BEARISH',
         'pe_ratio': df.attrs.get('pe_ratio'),
         'pbv': df.attrs.get('pbv'),
-        'market_cap': df.attrs.get('market_cap')
+        'market_cap': df.attrs.get('market_cap'),
+        'pattern': detect_candles(df),
+        'vol_context': get_volume_context(pct_1d, vol_ratio)
     }
-
-    if signal:
-        result = {
-            'type': signal,
-            'confidence': confidence,
-            'desc': desc,
-            'direction': direction,
-            'score': score,
-            'layers': layers,
-            'data': status_summary
-        }
-        return result, status_summary, "SIGNAL_DETECTED"
     
-    return None, status_summary, "HOLD"
+    result = {
+        'type': signal_type,
+        'confidence': confidence,
+        'desc': f"Weighted Conviction: {final_conviction:.1f}/10",
+        'direction': "BUY",
+        'score': final_conviction,
+        'layers': {'SmartMoney': sm_weight, 'Trend': trend_weight, 'RSI/Phase': rp_weight, 'Volatility': vol_weight, 'Macro': macro_weight},
+        'data': status_summary
+    }
+    
+    return result, status_summary, "SIGNAL_DETECTED"
 
 # ============================================================
 # CHART GENERATOR
@@ -973,14 +881,19 @@ def format_alert(signal_data, extra=None):
     narrative = generate_narrative(s)
     
     # Quant Header
-    if direction == "BUY":
-        alert_title = "🚨 [QUANT BUY ALERT]" if conf == "HIGH" else "👀 [WATCHLIST: SETUP FORMING]"
-    else:
+    sig_type = signal_data.get('type', '')
+    if sig_type == "AUTO_TRADE_BUY":
+        alert_title = "🤖 [AUTO-TRADE EXECUTED]" if conf in ["HIGH", "MEDIUM"] else "🚨 [QUANT BUY ALERT]"
+    elif sig_type == "ALERT_ONLY_BUY":
+        alert_title = "👀 [ALERT ONLY — Manual Review]"
+    elif direction == "SELL":
         alert_title = "⚠️ [DISTRIBUTION WARNING]" if conf == "HIGH" else "📉 [EXIT PROTOCOL]"
+    else:
+        alert_title = "📊 [SIGNAL DETECTED]"
         
     msg = "┏━━━━━━━━━━━━━━━━━━━━┓\n"
     msg += f"*{alert_title}*\n"
-    msg += f"Core: Quant Alpha Engine V9 Pro\n"
+    msg += f"Core: Quant Alpha Engine V10 Auto-Trade\n"
     msg += "━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
     
     # MARKET REGIME
@@ -1044,12 +957,21 @@ def format_alert(signal_data, extra=None):
     msg += f"\n🏥 *[HEALTH CHECK]*\n"
     msg += f"Liquidity: `{liq}` | News Risk: `{news}`\n"
     
-    # CONVICTION METRIC
+    # CONVICTION METRIC (Weighted)
     conv_bar = draw_progress_bar(score, max_val=10)
     msg += f"\n⚖️ *[CONVICTION METRIC]*\n"
     msg += f"`{conv_bar}` {score:.1f}/10\n"
-    layer_str = " ".join([f"✓{l}" if l in layers else f"✗{l}" for l in ['RSI', 'MACD', 'MA200', 'BEE-FLOW', 'Phase', 'Volatility']])
-    msg += f"Triggers: {layer_str.replace('BEE-FLOW', 'SmartMoney')}\n"
+    
+    # Show weighted component breakdown
+    if isinstance(layers, dict) and 'SmartMoney' in layers:
+        msg += f"SmartMoney(35%): `{layers.get('SmartMoney', 0):.1f}` | "
+        msg += f"Trend(25%): `{layers.get('Trend', 0):.1f}` | "
+        msg += f"RSI/Phase(20%): `{layers.get('RSI/Phase', 0):.1f}`\n"
+        msg += f"Volatility(15%): `{layers.get('Volatility', 0):.1f}` | "
+        msg += f"Macro(5%): `{layers.get('Macro', 0):.1f}`\n"
+    else:
+        layer_str = " ".join([f"✓{l}" if l in layers else f"✗{l}" for l in ['RSI', 'MACD', 'MA200', 'SmartMoney', 'Phase', 'Volatility']])
+        msg += f"Triggers: {layer_str}\n"
     
     # BACKTEST STATS
     if bt_stats:
@@ -1184,6 +1106,52 @@ async def main():
     config = load_config()
     state = get_last_state()
     
+    broker = MockBroker(initial_equity=config.get('portfolio', {}).get('initial_equity', 50000000))
+    logger = GoogleSheetsLogger()
+    
+    # Check Exits for Open Positions first
+    print("[EXECUTION] Checking Open Positions for Exit signals...")
+    open_positions = broker.get_open_positions().copy()
+    for sym, pos in open_positions.items():
+        df = fetch_data(sym, config)
+        if df is None: continue
+        df = calculate_indicators(df, config)
+        
+        last_row = df.iloc[-1]
+        close = last_row['Close']
+        rsi = last_row.get(f"RSI_{config['indicators']['rsi_length']}", 50)
+        atr = last_row.get(f"ATRr_{config['indicators']['atr_period']}", close * 0.02)
+        
+        entry_date = datetime.fromisoformat(pos['entry_date'])
+        days_held = (datetime.now(TIMEZONE) - entry_date).days
+        
+        # Determine trailing stop based on recent swing low
+        swing_low = df['Low'].tail(5).min()
+        trailing_sl = swing_low - (atr * 0.5)
+        
+        exit_reason = None
+        sell_lot = None
+        
+        # 1. Time decay
+        if days_held > 21:
+            exit_reason = "Time Decay (>21 days)"
+        # 2. Hard Stop Loss / Trailing
+        elif close <= trailing_sl and pos.get('tp1_hit', False):
+            exit_reason = "Trailing SL Hit"
+        # 3. Take Profit 1 (50%)
+        elif close >= (pos['avg_price'] + atr * 2) and not pos.get('tp1_hit', False):
+            exit_reason = "TP1 Hit (Scale Out 50%)"
+            sell_lot = pos['quantity'] // 2
+        # 4. Overbought / TP2
+        elif rsi >= 75:
+            exit_reason = "Overbought (RSI >= 75)"
+        
+        if exit_reason:
+            print(f"[{sym}] EXIT TRIGGERED: {exit_reason} at {format_rp(close)}")
+            success, res = broker.execute_sell(sym, close, lot=sell_lot, reason=exit_reason)
+            if success:
+                logger.log_trade(sym, "SELL", close, res['qty'], reason=exit_reason, pnl=res['realized_pnl'])
+                
     # Fetch IHSG macro data + regime
     print("[IHSG] Fetching macro data & regime...")
     ihsg_data = fetch_ihsg(config)
@@ -1199,7 +1167,7 @@ async def main():
         df = fetch_data(symbol, config)
         if df is not None:
             df = calculate_indicators(df, config)
-            signal_data, status_summary, reason = evaluate_signals(symbol, df, config)
+            signal_data, status_summary, reason = evaluate_signals(symbol, df, config, ihsg_data=ihsg_data)
             
             # Always track status for reporting, filter out invalid/NaN data
             if status_summary is not None:
@@ -1224,8 +1192,9 @@ async def main():
                 weekly = fetch_weekly_trend(symbol)
                 weekly_bullish = weekly.get('weekly_bullish') if weekly else None
                 
-                # Position Sizing
-                lot, pos_value = calculate_position_size(s['close'], s['stop_loss'], config)
+                # V9 PRO: Position Sizing based on Conviction Score
+                lot, pos_value, risk_pct_tier = calculate_position_size(s['close'], s['stop_loss'], signal_data['score'], config)
+                s['risk_pct'] = risk_pct_tier
                 
                 # Regime-based size reduction
                 if regime == 'CHOPPY':
@@ -1236,6 +1205,15 @@ async def main():
                 
                 # Sector exposure check
                 sector_warnings = check_sector_exposure(symbol, signals_sent_today, config)
+                
+                # Auto-Trade Execution
+                if sig_type == "AUTO_TRADE_BUY" and not sector_warnings and hc['liquidity'] != 'LOW':
+                    print(f"[{symbol}] Executing AUTO-TRADE BUY...")
+                    success, res = broker.execute_buy(symbol, s['close'], lot, reason=f"Conviction {signal_data['score']:.1f}")
+                    if success:
+                        logger.log_trade(symbol, "BUY", s['close'], lot, conviction=signal_data['score'], reason="Auto-Trade Signal")
+                    else:
+                        print(f"[{symbol}] Execution Failed: {res}")
                 
                 # Backtest stats
                 bt_stats = run_backtest_stats(symbol, df, config)
@@ -1282,6 +1260,9 @@ async def main():
             print(f"\n>> Session {now.hour}:00 WIB. Sending Market Status Report...")
             report = format_status_report(all_stocks_status, ihsg_data=ihsg_data)
             await send_telegram(report)
+            
+    # Log portfolio snapshot
+    logger.log_portfolio(broker.get_balance(), len(broker.get_open_positions()))
             
     save_state(state)
     print("=== Scan Complete ===")
