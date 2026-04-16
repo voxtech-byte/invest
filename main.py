@@ -694,6 +694,12 @@ def evaluate_signals(symbol, df, config, ihsg_data=None):
         pvt = last_row[pvt_col[0]] if pvt_col else 0
     except KeyError:
         return None, None, "Indicators incomplete."
+    
+    # Safety checks
+    if rsi is None or pd.isna(rsi) or ma200 is None or pd.isna(ma200) or vol_avg is None or pd.isna(vol_avg) or vol_avg == 0:
+        return None, None, "Data NaN or Missing"
+    
+    vol_ratio = volume / vol_avg
         
     # --- BUY CONVICTION COMPONENTS ---
     # 1. Smart Money Proxy (35%)
@@ -701,7 +707,7 @@ def evaluate_signals(symbol, df, config, ihsg_data=None):
     if vol_ratio > 2.5: sm_score += 0.4
     elif vol_ratio > 1.5: sm_score += 0.2
     if cmf > 0: sm_score += 0.3
-    if pvt > df['PVT'].tail(5).mean(): sm_score += 0.3
+    if pvt_col and pvt > df[pvt_col[0]].tail(5).mean(): sm_score += 0.3
     sm_weight = 0.35 * min(1.0, sm_score) * 10
     
     # 2. Trend Confirmation (25%)
