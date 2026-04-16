@@ -16,6 +16,9 @@ import mplfinance as mpf
 import requests
 from mock_broker import MockBroker
 from google_sheets_logger import GoogleSheetsLogger
+from dotenv import load_dotenv
+
+load_dotenv() # Load environment variables from .env file
 
 TIMEZONE = pytz.timezone('Asia/Jakarta')
 STATE_FILE = "last_signals.json"
@@ -140,6 +143,10 @@ def fetch_ihsg(config):
         idx_symbol = config.get('macro', {}).get('index_symbol', '^JKSE')
         stock = yf.Ticker(idx_symbol)
         df = stock.history(period="1y", interval="1d")
+        
+        # Clean NaN rows
+        df = df.dropna(subset=['Close'])
+        
         if df.empty or len(df) < 2:
             return None
         
@@ -664,7 +671,12 @@ def evaluate_signals(symbol, df, config, ihsg_data=None):
     - Volatility Check: 15%
     - Macro Regime Fit: 5%
     """
-    last_row = df.iloc[-1]
+    # Ensure we use the last row that actually has price data (avoids midnight NaN rows)
+    valid_df = df.dropna(subset=['Close'])
+    if valid_df.empty:
+        return None, None, "No valid price data"
+    
+    last_row = valid_df.iloc[-1]
     
     ind_cfg = config['indicators']
     sig_cfg = config['signals']
@@ -1114,7 +1126,8 @@ def format_status_report(all_stocks_status, ihsg_data=None, broker=None):
 
 async def send_telegram(message, photo_path=None):
     if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
-        print("Telegram Token missing. Log:\n", message)
+        print("\n⚠️ [WARNING] Telegram Token/ChatID is missing! Notification skipped.")
+        print(">> If you are running locally, make sure to export variables or use a .env file.")
         return
         
     try:
@@ -1307,7 +1320,15 @@ async def main():
         if len(all_stocks_status) > 0:
             print(f"\n>> Session {now.hour}:00 WIB. Sending Market Status Report...")
             report = format_status_report(all_stocks_status, ihsg_data=ihsg_data, broker=broker)
+            # Add a small note if this is a manual run status check
+            if not signals_sent_today:
+                report += "\n_Note: No new execution signals in this scan._"
+            
             await send_telegram(report)
+        else:
+            print(">> No stock data available to generate status report.")
+    else:
+        print(">> Status report disabled in config.")
             
     # Calculate portfolio stats for logging
     total_unrealized_pnl = 0

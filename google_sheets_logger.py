@@ -81,7 +81,8 @@ class GoogleSheetsLogger:
             try:
                 sheet = self.spreadsheet.worksheet("Portfolio")
                 sheet.append_row([date_str, float(equity), int(open_positions_count), float(total_unrealized_pnl), "Updated"])
+                print("✅ Portfolio data logged to Google Sheets.")
             except Exception as e:
-                print(f"Error logging portfolio to GSheets: {e}")
+                print(f"❌ Error logging portfolio to GSheets: {e}")
         
         print(f"[PORTFOLIO] Equity: {equity}, Open Positions: {open_positions_count}")
