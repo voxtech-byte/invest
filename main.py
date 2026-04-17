@@ -554,18 +554,19 @@ def get_volume_context(pct_1d: float, vol_ratio: float) -> str:
 def calculate_position_size(price: float, stop_loss: float, conviction_score: float, config: dict[str, Any]) -> tuple[int, float, float]:
     """
     Calculate lot size based on risk-per-trade tiers driven by conviction score.
+    V11 Pro (Tamed): Lower risk percentages for more conservative allocation.
     """
     portfolio = config.get('portfolio', {})
     initial_equity = portfolio.get('initial_equity', 50000000)
     
     if conviction_score >= 9.0:
-        risk_pct = 4.0
+        risk_pct = 2.0
     elif conviction_score >= 7.5:
-        risk_pct = 2.5
+        risk_pct = 1.25
     elif conviction_score >= 6.5:
-        risk_pct = 1.5
-    elif conviction_score >= 4.5:
         risk_pct = 0.75
+    elif conviction_score >= 4.5:
+        risk_pct = 0.4
     else:
         return 0, 0.0, 0.0
         
@@ -581,28 +582,30 @@ def calculate_position_size(price: float, stop_loss: float, conviction_score: fl
     
     return lot, position_value, risk_pct
 
-def check_sector_exposure(symbol: str, active_signals: list[str], config: dict[str, Any]) -> list[str]:
-    """Check if adding this symbol would breach sector exposure limits"""
+def check_sector_exposure(symbol: str, open_positions: dict[str, Any], config: dict[str, Any]) -> list[str]:
+    """Check if adding this symbol would breach sector exposure limits, including current holdings."""
     sectors = config.get('sectors', {})
     portfolio = config.get('portfolio', {})
-    max_sector_pct = portfolio.get('max_sector_exposure_pct', 30)
+    max_sector_pct = portfolio.get('max_sector_exposure_pct', 25)
+    max_pos = portfolio.get('max_open_positions', 5)
     
     current_sector = sectors.get(symbol, 'Unknown')
     
-    sector_count = {}
-    for sig in active_signals:
-        sig_sector = sectors.get(sig, 'Unknown')
-        sector_count[sig_sector] = sector_count.get(sig_sector, 0) + 1
+    # Calculate current exposure including open positions
+    sector_count = 0
+    for sym in open_positions.keys():
+        if sectors.get(sym, 'Unknown') == current_sector:
+            sector_count += 1
+            
+    # Add 1 for the potential new trade
+    projected_count = sector_count + 1
     
-    same_sector_count = sector_count.get(current_sector, 0)
-    total_active = len(active_signals)
+    # Simple slot-based percentage calculation
+    current_exposure_pct = (projected_count / max_pos) * 100
     
     warnings = []
-    
-    if total_active > 0:
-        sector_pct = (same_sector_count / max(total_active, 1)) * 100
-        if sector_pct >= max_sector_pct:
-            warnings.append(f"Sector {current_sector} exposure > {max_sector_pct}%")
+    if current_exposure_pct > max_sector_pct:
+        warnings.append(f"Sector {current_sector} exposure would reach {current_exposure_pct:.0f}% (Limit: {max_sector_pct}%)")
     
     return warnings
 
@@ -1361,7 +1364,7 @@ async def main() -> None:
                     lot = (lot // 100) * 100
                     pos_value = lot * s['close']
                 
-                sector_warnings = check_sector_exposure(symbol, signals_sent_today, config)
+                sector_warnings = check_sector_exposure(symbol, broker.get_open_positions(), config)
                 
                 # Check Single Trade Equity Cap
                 max_single_eq = config.get('safety', {}).get('max_single_trade_equity_pct', 50)

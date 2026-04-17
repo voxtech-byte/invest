@@ -72,8 +72,8 @@
   },
   "portfolio": {
     "initial_equity": 50000000,
-    "max_sector_exposure_pct": 30,
-    "max_open_positions": 10,
+    "max_sector_exposure_pct": 25,
+    "max_open_positions": 5,
     "risk_per_trade_pct": 1.5
   },
   "regime": {
@@ -121,7 +121,7 @@
     "daily_loss_limit_pct": 5.0,
     "max_concurrent_positions": 5,
     "circuit_breaker_ihsg_pct": 2.0,
-    "max_single_trade_equity_pct": 50,
+    "max_single_trade_equity_pct": 20,
     "min_liquidity_for_auto": "OK",
     "conviction_decay_per_day": 0.3
   },
