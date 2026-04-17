@@ -1,0 +1,24 @@
+[
+  {
+    "date": "2026-04-17T11:23:33.417072+07:00",
+    "action": "BUY",
+    "symbol": "AKRA.JK",
+    "price": 1470.0,
+    "qty": 3300,
+    "fee": 7276.5,
+    "reason": "Terminal-Live S:6.6",
+    "realized_pnl": 0.0,
+    "balance_after": 31985618.9
+  },
+  {
+    "date": "2026-04-17T11:23:52.451720+07:00",
+    "action": "BUY",
+    "symbol": "DRMA.JK",
+    "price": 1020.0,
+    "qty": 6900,
+    "fee": 10557.0,
+    "reason": "Terminal-Live S:7.3",
+    "realized_pnl": 0.0,
+    "balance_after": 24937061.9
+  }
+]

@@ -1,39 +1,27 @@
 {
   "stocks": [
-    "BBCA.JK",
-    "BMRI.JK",
-    "BRIS.JK",
-    "BBNI.JK",
-    "GOTO.JK",
-    "BUKA.JK",
-    "UNVR.JK",
-    "INDF.JK",
-    "KAEF.JK",
-    "MERK.JK",
-    "TLKM.JK",
-    "PGAS.JK",
-    "WIKA.JK",
-    "PTBA.JK",
-    "ASII.JK",
-    "UNTR.JK"
+    "ACES.JK", "ADMR.JK", "ADRO.JK", "AKRA.JK", "AMRT.JK", "ANTM.JK", "ASII.JK", 
+    "BBCA.JK", "BBNI.JK", "BBRI.JK", "BBTN.JK", "BMRI.JK", "BRIS.JK", "BUKA.JK", 
+    "CPIN.JK", "CTRA.JK", "DRMA.JK", "EMTK.JK", "ESSA.JK", "EXCL.JK", "GOTO.JK", 
+    "HRUM.JK", "ICBP.JK", "INCO.JK", "INDF.JK", "INKP.JK", "ITMG.JK", "JSMR.JK", 
+    "KLBF.JK", "MDKA.JK", "MEDC.JK", "PGAS.JK", "PGEO.JK", "PTBA.JK", "PTPP.JK", 
+    "SCMA.JK", "SIDO.JK", "SMGR.JK", "SRTG.JK", "TLKM.JK", "TOWR.JK", "TPIA.JK", 
+    "UNTR.JK", "UNVR.JK", "BRMS.JK"
   ],
   "sectors": {
-    "BBCA.JK": "Finance",
-    "BMRI.JK": "Finance",
-    "BRIS.JK": "Finance",
-    "BBNI.JK": "Finance",
-    "GOTO.JK": "Technology",
-    "BUKA.JK": "Technology",
-    "UNVR.JK": "Consumer",
-    "INDF.JK": "Consumer",
+    "BBCA.JK": "Finance", "BBRI.JK": "Finance", "BMRI.JK": "Finance", "BBNI.JK": "Finance", "BRIS.JK": "Finance", "BBTN.JK": "Finance",
+    "GOTO.JK": "Technology", "BUKA.JK": "Technology", "EMTK.JK": "Technology",
+    "ADRO.JK": "Energy", "PTBA.JK": "Energy", "ITMG.JK": "Energy", "MEDC.JK": "Energy", "HRUM.JK": "Energy", "PGAS.JK": "Energy", "PGEO.JK": "Energy", "AKRA.JK": "Energy", "ESSA.JK": "Energy",
+    "ANTM.JK": "Mining", "INCO.JK": "Mining", "MDKA.JK": "Mining", "BRMS.JK": "Mining",
+    "AMRT.JK": "Consumer", "UNVR.JK": "Consumer", "ICBP.JK": "Consumer", "INDF.JK": "Consumer", "KLBF.JK": "Consumer", "SIDO.JK": "Consumer", "ACES.JK": "Consumer",
+    "ASII.JK": "Automotive", "DRMA.JK": "Automotive", "UNTR.JK": "Automotive",
+    "TLKM.JK": "Infrastructure", "TOWR.JK": "Infrastructure", "EXCL.JK": "Infrastructure", "JSMR.JK": "Infrastructure", "PTPP.JK": "Infrastructure", "SMGR.JK": "Infrastructure", "SCMA.JK": "Infrastructure",
+    "TPIA.JK": "Basic Materials", "INKP.JK": "Basic Materials",
+    "CTRA.JK": "Property",
+    "SRTG.JK": "Investment",
     "KAEF.JK": "Healthcare",
     "MERK.JK": "Healthcare",
-    "TLKM.JK": "Telecom",
-    "PGAS.JK": "Energy",
-    "WIKA.JK": "Infrastructure",
-    "PTBA.JK": "Mining",
-    "ASII.JK": "Automotive",
-    "UNTR.JK": "Automotive"
+    "WIKA.JK": "Infrastructure"
   },
   "indicators": {
     "rsi_length": 14,
@@ -91,8 +79,8 @@
     "min_avg_volume": 100000
   },
   "api_keys": {
-    "alpha_vantage": "IR26X3CQQVSS3YTP",
-    "fcs_api": "jUBpyGPHo60si41whSdp7tM6mGNh"
+    "alpha_vantage": "YOUR_ALPHA_VANTAGE_KEY_HERE",
+    "fcs_api": "YOUR_FCS_API_KEY_HERE"
   },
   "macro": {
     "index_symbol": "^JKSE"
@@ -102,7 +90,7 @@
     "status_report_format": "detailed"
   },
   "google_sheets": {
-    "spreadsheet_id": "1lMwXLtWgHSoNUoO96hDrKuAxsWUM56_G64C31qFJA2k",
+    "spreadsheet_id": "YOUR_SPREADSHEET_ID_HERE",
     "credentials_file": "service_account.json"
   },
   "execution": {
