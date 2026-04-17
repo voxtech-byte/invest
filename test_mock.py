@@ -2,12 +2,13 @@ import argparse
 import asyncio
 from datetime import datetime
 import pytz
-import json
 import pandas as pd
 import os
 
 from main import format_alert, format_status_report, send_telegram, load_config, generate_chart, format_rp
+from logger import get_logger
 
+logger = get_logger(__name__)
 TIMEZONE = pytz.timezone('Asia/Jakarta')
 
 def create_mock_df():
@@ -31,7 +32,7 @@ def create_mock_df():
     return df
 
 def simulate_v9_acc():
-    print("--- Simulating V9 Pro [QUANT BUY ALERT] ---")
+    logger.info("--- Simulating V11 Pro [QUANT BUY ALERT] ---")
     data = {
         'type': 'STRONG_BUY', 'confidence': 'HIGH',
         'desc': 'Multiple confirmations align. Strong entry opportunity.',
@@ -70,12 +71,13 @@ def simulate_v9_acc():
             'max_drawdown_r': 4.8, 'total_trades': 142,
             'wins': 77, 'losses': 65
         },
-        'sector_warnings': []
+        'sector_warnings': [],
+        'safety_warnings': ['[ASII.JK] Position size exceeds single trade equity cap (50%)']
     }
     return format_alert(data, extra=extra), data
 
 def simulate_v9_report():
-    print("--- Simulating V9 Pro QUANTITATIVE REPORT ---")
+    logger.info("--- Simulating V11 Pro QUANTITATIVE REPORT ---")
     ihsg = {
         'close': 7500, 'pct_1d': 0.6, 'trend': 'BULLISH',
         'ma200': 7200, 'ma50': 7350, 'adx': 25.4,
@@ -91,7 +93,7 @@ def simulate_v9_report():
     return format_status_report(stocks, ihsg_data=ihsg), None
 
 async def run_test():
-    parser = argparse.ArgumentParser(description="V9 Pro Quant Engine Mock Test")
+    parser = argparse.ArgumentParser(description="V11 Pro Quant Engine Mock Test")
     parser.add_argument('--type', choices=['acc', 'report'], default='acc')
     parser.add_argument('--send-telegram', action='store_true')
     args = parser.parse_args()
@@ -106,7 +108,7 @@ async def run_test():
         try:
             photo_path = generate_chart('ASII.JK', df, config)
         except Exception as e:
-            print(f"Chart error: {e}")
+            logger.error(f"Chart error: {e}", exc_info=True)
     elif args.type == 'report':
         message, _ = simulate_v9_report()
 

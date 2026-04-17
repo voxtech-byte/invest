@@ -8,6 +8,10 @@ trade_history.csv
 forward_test.csv
 last_signals.json
 
+# Logs
+*.log
+logs/
+
 # Python
 __pycache__/
 *.pyc

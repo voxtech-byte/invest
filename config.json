@@ -122,7 +122,8 @@
     "max_concurrent_positions": 5,
     "circuit_breaker_ihsg_pct": 2.0,
     "max_single_trade_equity_pct": 50,
-    "min_liquidity_for_auto": "OK"
+    "min_liquidity_for_auto": "OK",
+    "conviction_decay_per_day": 0.3
   },
   "conviction_weights": {
     "smart_money": 0.35,

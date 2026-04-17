@@ -1,15 +1,20 @@
 import os
 import json
 from datetime import datetime
+from typing import Any
+
 import pytz
 import gspread
 from google.oauth2.service_account import Credentials
+from logger import get_logger
+
+logger = get_logger(__name__)
 
 # Fallback basic logger to CSV if Google Sheets is not configured or missing credentials
 CSV_FALLBACK_FILE = "trade_history.csv"
 
 class GoogleSheetsLogger:
-    def __init__(self, sheet_id=None, credentials_file="service_account.json"):
+    def __init__(self, sheet_id: str | None = None, credentials_file: str = "service_account.json") -> None:
         self.sheet_id = sheet_id
         self.credentials_file = credentials_file
         self.is_configured = False
@@ -27,14 +32,15 @@ class GoogleSheetsLogger:
                 self.spreadsheet = self.client.open_by_key(self.sheet_id)
                 self.is_configured = True
                 self._prepare_sheets()
-                print("✅ Google Sheets connected successfully.")
+                logger.info("✅ Google Sheets connected successfully.")
             except Exception as e:
-                print(f"❌ Google Sheets config error: {e}. Falling back to CSV.")
+                logger.error(f"❌ Google Sheets config error: {e}. Falling back to CSV.", exc_info=True)
+                self._init_csv() # Call here to ensure fallback is ready
         else:
-            print("⚠️ Google Sheets not fully configured (missing .json or sheet_id). Falling back to CSV.")
+            logger.warning("⚠️ Google Sheets not fully configured (missing .json or sheet_id). Falling back to CSV.")
             self._init_csv()
 
-    def _prepare_sheets(self):
+    def _prepare_sheets(self) -> None:
         """Ensure core sheets exist with headers"""
         # 1. Trades Sheet
         try:
@@ -50,12 +56,13 @@ class GoogleSheetsLogger:
             port_sheet = self.spreadsheet.add_worksheet(title="Portfolio", rows="1000", cols="5")
             port_sheet.append_row(["Date", "Cash Balance", "Open Positions", "Total Pnl", "Last Update"])
 
-    def _init_csv(self):
+    def _init_csv(self) -> None:
+        """Initialize the fallback CSV file if it doesn't exist."""
         if not os.path.exists(CSV_FALLBACK_FILE):
             with open(CSV_FALLBACK_FILE, 'w') as f:
                 f.write("Date,Symbol,Action,Price,Qty,Conviction,Reason,Pnl\n")
 
-    def log_trade(self, symbol, action, price, qty, conviction=0.0, reason="", pnl=0.0):
+    def log_trade(self, symbol: str, action: str, price: float, qty: int, conviction: float = 0.0, reason: str = "", pnl: float = 0.0) -> None:
         """Append a trade row to the sheet or CSV"""
         date_str = datetime.now(pytz.timezone('Asia/Jakarta')).strftime("%Y-%m-%d %H:%M:%S")
         total_value = price * qty
@@ -65,15 +72,15 @@ class GoogleSheetsLogger:
                 sheet = self.spreadsheet.worksheet("Trades")
                 sheet.append_row([date_str, symbol, action, float(price), int(qty), float(conviction), reason, float(pnl), float(total_value)])
             except Exception as e:
-                print(f"Error logging to GSheets: {e}")
+                logger.error(f"Error logging to GSheets: {e}")
         
         # Always log to CSV as backup
         with open(CSV_FALLBACK_FILE, 'a') as f:
             f.write(f"{date_str},{symbol},{action},{price},{qty},{conviction},{reason},{pnl}\n")
         
-        print(f"Logged {action} {symbol} to {'Google Sheets + CSV' if self.is_configured else 'CSV'}")
+        logger.debug(f"Logged {action} {symbol} to {'Google Sheets + CSV' if self.is_configured else 'CSV'}")
 
-    def log_portfolio(self, equity, open_positions_count, total_unrealized_pnl=0.0):
+    def log_portfolio(self, equity: float, open_positions_count: int, total_unrealized_pnl: float = 0.0) -> None:
         """Save daily portfolio snapshot"""
         date_str = datetime.now(pytz.timezone('Asia/Jakarta')).strftime("%Y-%m-%d %H:%M:%S")
         
@@ -81,8 +88,8 @@ class GoogleSheetsLogger:
             try:
                 sheet = self.spreadsheet.worksheet("Portfolio")
                 sheet.append_row([date_str, float(equity), int(open_positions_count), float(total_unrealized_pnl), "Updated"])
-                print("✅ Portfolio data logged to Google Sheets.")
+                logger.info("✅ Portfolio data logged to Google Sheets.")
             except Exception as e:
-                print(f"❌ Error logging portfolio to GSheets: {e}")
+                logger.error(f"❌ Error logging portfolio to GSheets: {e}")
         
-        print(f"[PORTFOLIO] Equity: {equity}, Open Positions: {open_positions_count}")
+        logger.info(f"[PORTFOLIO] Equity: {equity:,.0f}, Open Positions: {open_positions_count}")
