@@ -12,12 +12,16 @@ logger = get_logger(__name__)
 # WYCKOFF PHASE DETECTION (VSA + Standard Phases)
 # ══════════════════════════════════════════════════════════════
 
-def detect_wyckoff_phase(df: pd.DataFrame) -> str:
+def detect_wyckoff_phase(df: pd.DataFrame) -> tuple[str, dict]:
     """
     Detect market cycle phase based on Wyckoff theory proxies + VSA.
-    Accumulation, Markup, Distribution, Markdown, Spring, Upthrust.
+    Returns (phase_label, metadata_dict) with conviction modifiers.
     """
-    if len(df) < 50: return "UNKNOWN"
+    meta = {"conviction_modifier": 0.0, "block_entry": False, "trigger_exit": False, "wyckoff_target": None}
+
+    if len(df) < 50:
+        return "UNKNOWN", meta
+
     last = df.iloc[-1]
     prev_20 = df.iloc[-20]
     ma50 = last.get('SMA_50', 0)
@@ -30,23 +34,47 @@ def detect_wyckoff_phase(df: pd.DataFrame) -> str:
     support = last.get('Support_Level', 0)
     resistance = last.get('Resistance_Level', float('inf'))
 
-    # 1. VSA SPECIAL PHASES (Priority)
-    if low < support < close and volume > 1.5 * vol_avg:
-        return "SPRING (Potential Accumulation Shakeout)"
-    if high > resistance > close and volume > 1.2 * vol_avg:
-        return "UPTHRUST (Potential Distribution Test)"
+    # ── 1. SPRING DETECTION (High Priority) ──
+    # Low breaks below support AND close recovers above support in same candle
+    # Volume > 1.5x average confirms institutional shakeout
+    if support > 0 and low < support and close > support and volume > 1.5 * vol_avg:
+        # Cause & Effect: projected target = entry + accumulation range width
+        accum_range = resistance - support if resistance < float('inf') else close * 0.10
+        meta["conviction_modifier"] = +1.5
+        meta["wyckoff_target"] = round(close + accum_range, 0)
+        return "SPRING — High Probability Reversal", meta
 
-    # 2. STANDARD PHASES
+    # ── 2. UPTHRUST DETECTION (High Priority) ──
+    # High breaks above resistance AND close falls back below resistance
+    # Volume spike > 2x average confirms institutional distribution
+    if resistance < float('inf') and high > resistance and close < resistance and volume > 2.0 * vol_avg:
+        meta["conviction_modifier"] = -2.0
+        meta["block_entry"] = True
+        meta["trigger_exit"] = True
+        return "UPTHRUST — Distribusi Institusi", meta
+
+    # ── 3. STANDARD PHASES ──
     if close > ma50 > ma200 and ma50 > prev_20.get('SMA_50', 0):
-        return "MARKUP (Strong Trend)"
+        return "MARKUP (Strong Trend)", meta
     if close < ma50 < ma200:
-        return "MARKDOWN (Stay Away)"
+        meta["trigger_exit"] = True
+        return "MARKDOWN (Stay Away)", meta
     if ma50 < ma200 and ma50 > 0 and abs(close - ma50)/ma50 < 0.05:
-        return "ACCUMULATION (Smart Money Buying)"
+        # Cause & Effect for accumulation
+        accum_range = resistance - support if resistance < float('inf') and support > 0 else close * 0.08
+        meta["wyckoff_target"] = round(close + accum_range, 0)
+        return "ACCUMULATION (Smart Money Buying)", meta
     if close > ma200 and ma50 > 0 and abs(close - ma50)/ma50 < 0.05 and last.get('Pct_Change_5D', 0) < 0:
-        return "DISTRIBUTION (Institutions Selling)"
+        meta["conviction_modifier"] = -0.5
+        return "DISTRIBUTION (Institutions Selling)", meta
 
-    return "CONSOLIDATION (Neutral)"
+    return "CONSOLIDATION (Neutral)", meta
+
+
+def detect_wyckoff_phase_simple(df: pd.DataFrame) -> str:
+    """Backward-compatible wrapper returning just the label string."""
+    label, _ = detect_wyckoff_phase(df)
+    return label
 
 
 # ══════════════════════════════════════════════════════════════
@@ -116,7 +144,7 @@ def get_weekly_trend(df: pd.DataFrame) -> str:
 
 
 # ══════════════════════════════════════════════════════════════
-# EXIT SIGNAL EVALUATION
+# EXIT SIGNAL EVALUATION (with Trailing Stop + Momentum Exit)
 # ══════════════════════════════════════════════════════════════
 
 def evaluate_exit_conditions(
@@ -128,7 +156,8 @@ def evaluate_exit_conditions(
 ) -> tuple[Optional[str], str]:
     """
     Dedicated exit signal evaluator for open positions.
-    Checks multiple exit conditions and returns the most urgent one.
+    Includes: stop loss, trailing stop, momentum exit, VWAP rejection,
+    Wyckoff phase exit, time-based exit, partial TP.
 
     Returns:
         (exit_type, reason) — e.g. ("AUTO_TRADE_SELL", "Stop Loss Breach")
@@ -143,6 +172,8 @@ def evaluate_exit_conditions(
     exec_cfg = config.get('execution', {})
     entry_price = position.get('avg_price', close)
     entry_date_str = position.get('entry_date', '')
+    tp1_hit = position.get('tp1_hit', False)
+    highest_price = position.get('highest_price', entry_price)
 
     # ── Parse holding duration ──
     holding_days = 0
@@ -153,14 +184,34 @@ def evaluate_exit_conditions(
         except Exception:
             holding_days = 0
 
-    # ── Compute dynamic stop/target from ATR ──
+    # ── ATR & levels ──
     atr_period = ind_cfg.get('atr_period', 14)
     atr = last.get(f'ATRr_{atr_period}', last.get('ATR_14', close * 0.02))
+    if atr <= 0:
+        atr = close * 0.02
     support = last.get('Support_Level', close - atr * 2)
-    stop_loss = max(support, close - atr * 2)
 
-    # If TP1 was already hit, trail stop to entry (break-even)
-    tp1_hit = position.get('tp1_hit', False)
+    # ── Compute base stop loss ──
+    base_stop = max(support, entry_price - atr * 2)
+
+    # ══ TRAILING STOP LOGIC ══
+    # Activation: price has risen at least trailing_activation_atr × ATR from entry
+    trail_activation = exec_cfg.get('trailing_activation_atr', 1.0)
+    trail_multiplier = exec_cfg.get('trailing_stop_atr_multiplier', 1.5)
+
+    # Update highest price tracker
+    if close > highest_price:
+        highest_price = close
+
+    # Calculate trailing stop level
+    if highest_price >= entry_price + (trail_activation * atr):
+        # Trailing is active: stop follows highest_price minus trail distance
+        trailing_stop = highest_price - (trail_multiplier * atr)
+        stop_loss = max(base_stop, trailing_stop)
+    else:
+        stop_loss = base_stop
+
+    # If TP1 was hit, ensure stop is at least at break-even (entry price)
     if tp1_hit:
         stop_loss = max(stop_loss, entry_price)
 
@@ -172,44 +223,56 @@ def evaluate_exit_conditions(
     vol_avg = last.get('Vol_Avg', 0)
     vol_ratio = last['Volume'] / vol_avg if vol_avg > 0 else 1.0
     sma50 = last.get(f"SMA_{ind_cfg.get('ma_short', 50)}", 0)
-    phase = detect_wyckoff_phase(df)
+    vwap = last.get('VWAP_D', 0)
 
-    # ══ EXIT CONDITION 1: Price breaches Stop Loss ══
+    # Wyckoff phase with metadata
+    phase, wyckoff_meta = detect_wyckoff_phase(df)
+
+    # ══ EXIT 1: Price breaches Stop Loss ══
     if close <= stop_loss:
-        return "AUTO_TRADE_SELL", f"Stop Loss Breach ({close:.0f} <= {stop_loss:.0f})"
+        trail_label = " (Trailing)" if highest_price >= entry_price + (trail_activation * atr) else ""
+        return "AUTO_TRADE_SELL", f"Stop Loss{trail_label} Breach ({close:.0f} <= {stop_loss:.0f})"
 
-    # ══ EXIT CONDITION 2: RSI overbought + volume spike = distribution ══
-    if rsi > 75 and vol_ratio > 1.5:
-        return "AUTO_TRADE_SELL", f"Overbought Distribution (RSI={rsi:.0f}, VolRatio={vol_ratio:.1f}x)"
+    # ══ EXIT 2: Momentum Exit — RSI overbought + volume spike ══
+    momentum_rsi = exec_cfg.get('momentum_exit_rsi', 78)
+    momentum_vol = exec_cfg.get('momentum_exit_vol_ratio', 2.0)
+    if rsi > momentum_rsi and vol_ratio > momentum_vol:
+        return "AUTO_TRADE_SELL", f"Momentum Distribution (RSI={rsi:.0f}, Vol={vol_ratio:.1f}x)"
 
-    # ══ EXIT CONDITION 3: Close < SMA50 after holding > 3 days ══
+    # ══ EXIT 3: Close < SMA50 after holding > 3 days ══
     if sma50 > 0 and close < sma50 and holding_days >= 3:
-        return "AUTO_TRADE_SELL", f"Below SMA50 after {holding_days}d hold ({close:.0f} < SMA50={sma50:.0f})"
+        return "AUTO_TRADE_SELL", f"Below SMA50 after {holding_days}d ({close:.0f} < {sma50:.0f})"
 
-    # ══ EXIT CONDITION 4: Wyckoff MARKDOWN or DISTRIBUTION ══
-    if "MARKDOWN" in phase:
-        return "AUTO_TRADE_SELL", f"Wyckoff Phase: {phase}"
+    # ══ EXIT 4: VWAP Rejection — close drops below VWAP ══
+    if vwap > 0 and close < vwap and holding_days >= 2:
+        pnl_pct = ((close - entry_price) / entry_price * 100) if entry_price > 0 else 0
+        if pnl_pct < -1.0:  # Only if also losing money
+            return "AUTO_TRADE_SELL", f"VWAP Rejection ({close:.0f} < VWAP={vwap:.0f}, P&L={pnl_pct:+.1f}%)"
+
+    # ══ EXIT 5: Wyckoff MARKDOWN or UPTHRUST ══
+    if wyckoff_meta.get('trigger_exit', False):
+        return "AUTO_TRADE_SELL", f"Wyckoff Exit: {phase}"
     if "DISTRIBUTION" in phase and holding_days >= 2:
-        return "AUTO_TRADE_SELL", f"Wyckoff Phase: {phase} (held {holding_days}d)"
+        return "AUTO_TRADE_SELL", f"Wyckoff: {phase} (held {holding_days}d)"
 
-    # ══ EXIT CONDITION 5: Time-based forced exit ══
+    # ══ EXIT 6: Time-based forced exit ══
     force_exit_days = exec_cfg.get('force_exit_days', 21)
     if holding_days >= force_exit_days:
-        return "AUTO_TRADE_SELL", f"Time-Based Exit: {holding_days}d >= {force_exit_days}d limit"
+        return "AUTO_TRADE_SELL", f"Time Exit: {holding_days}d >= {force_exit_days}d"
 
-    # ══ EXIT CONDITION 6: Max hold without profit ══
+    # ══ EXIT 7: Stale position (no profit after max_hold_days) ══
     max_hold_days = exec_cfg.get('max_hold_days', 14)
     pnl_pct = ((close - entry_price) / entry_price * 100) if entry_price > 0 else 0
     if holding_days >= max_hold_days and pnl_pct <= 0:
-        return "AUTO_TRADE_SELL", f"Stale Position: {holding_days}d held, P&L={pnl_pct:+.1f}%"
+        return "AUTO_TRADE_SELL", f"Stale: {holding_days}d, P&L={pnl_pct:+.1f}%"
 
-    # ══ PARTIAL TP CHECK: TP1 hit → signal partial sell ══
+    # ══ PARTIAL TP: TP1 hit → signal 50% sell ══
     if not tp1_hit and close >= target_1:
-        return "PARTIAL_TP1", f"TP1 Hit ({close:.0f} >= {target_1:.0f}) — Sell 50%"
+        return "PARTIAL_TP1", f"TP1 ({close:.0f} >= {target_1:.0f}) — Sell 50%"
 
     # ══ FULL EXIT: TP2 hit ══
     if close >= target_2:
-        return "AUTO_TRADE_SELL", f"TP2 Hit ({close:.0f} >= {target_2:.0f}) — Full Exit"
+        return "AUTO_TRADE_SELL", f"TP2 ({close:.0f} >= {target_2:.0f}) — Full Exit"
 
     return None, ""
 
@@ -226,14 +289,9 @@ def evaluate_signals(
     open_position: dict = None
 ):
     """
-    Weighted Conviction Scoring Engine with proper exit signal generation.
-
-    Args:
-        symbol: Ticker symbol
-        df: DataFrame with indicators calculated
-        config: System configuration
-        ihsg_data: IHSG macro data
-        open_position: Current position dict if held (for exit evaluation)
+    Weighted Conviction Scoring Engine V14 Phase 2.
+    Includes Wyckoff conviction modifiers, VWAP gate, multi-timeframe gate,
+    and Spring/Upthrust detection.
 
     Returns:
         (signal_dict, status_summary, reason_string)
@@ -244,6 +302,7 @@ def evaluate_signals(
 
     last = valid_df.iloc[-1]
     close = last['Close']
+    exec_cfg = config.get('execution', {})
 
     # ── Guard clause: ensure Vol_Avg is valid ──
     if last.get('Vol_Avg', 0) <= 0:
@@ -262,10 +321,17 @@ def evaluate_signals(
     # ── VWAP Bonus ──
     vwap = last.get('VWAP_D', 0)
     if vwap > 0 and close > vwap:
-        final_conviction += 0.3  # Bonus for above VWAP
+        final_conviction += 0.3
 
     # ── Multi-Timeframe Confirmation ──
     weekly_trend = get_weekly_trend(df)
+
+    # ── Wyckoff Phase + Conviction Modifier ──
+    wyckoff_phase, wyckoff_meta = detect_wyckoff_phase(df)
+    final_conviction += wyckoff_meta.get('conviction_modifier', 0.0)
+
+    # Clamp conviction to 0-10 range
+    final_conviction = max(0.0, min(10.0, final_conviction))
 
     # ── ATR-based Risk Management Targets ──
     ind_cfg = config.get('indicators', {})
@@ -283,7 +349,8 @@ def evaluate_signals(
         'symbol': symbol,
         'close': close,
         'conviction': round(final_conviction, 1),
-        'wyckoff_phase': detect_wyckoff_phase(df),
+        'wyckoff_phase': wyckoff_phase,
+        'wyckoff_target': wyckoff_meta.get('wyckoff_target'),
         'bee_score': bee_score,
         'bee_label': bee_label,
         'stop_loss': stop_loss,
@@ -312,27 +379,33 @@ def evaluate_signals(
     # ══════════════════════════════════════════════════════════
     # ENTRY SIGNAL DETECTION
     # ══════════════════════════════════════════════════════════
-    exec_cfg = config.get('execution', {})
     signal_type = None
+
+    # ── Upthrust blocks entry ──
+    if wyckoff_meta.get('block_entry', False):
+        logger.info(f"[{symbol}] Entry BLOCKED by Wyckoff: {wyckoff_phase}")
+        return {
+            'type': None,
+            'score': final_conviction,
+            'data': status_summary
+        }, status_summary, f"Blocked ({wyckoff_phase})"
 
     # Buy Signals — with multi-timeframe gate
     if final_conviction >= exec_cfg.get('auto_trade_threshold', 6.5):
         if weekly_trend != "BEARISH":
             signal_type = "AUTO_TRADE_BUY"
         else:
-            logger.info(f"[{symbol}] AUTO_BUY blocked: Weekly trend is BEARISH (score={final_conviction:.1f})")
-            signal_type = "ALERT_ONLY_BUY"  # Downgrade to alert
+            logger.info(f"[{symbol}] AUTO_BUY blocked: Weekly BEARISH (score={final_conviction:.1f})")
+            signal_type = "ALERT_ONLY_BUY"
     elif final_conviction >= exec_cfg.get('alert_only_threshold', 4.5):
         signal_type = "ALERT_ONLY_BUY"
 
-    # Sell Signals (conviction-based for stocks NOT in portfolio)
+    # Sell Signals (for stocks NOT in portfolio)
     if signal_type is None:
         if final_conviction <= exec_cfg.get('exit_threshold', 3.0):
             signal_type = "AUTO_TRADE_SELL"
 
-        # Wyckoff-based exit hint
-        phase = detect_wyckoff_phase(df)
-        if "DISTRIBUTION" in phase or "UPTHRUST" in phase:
+        if "DISTRIBUTION" in wyckoff_phase or "UPTHRUST" in wyckoff_phase:
             if final_conviction < 5.0:
                 signal_type = "AUTO_TRADE_SELL"
 
@@ -371,7 +444,7 @@ def _score_trend(last, config):
 
 def _score_rsi_phase(df, last, config):
     rsi = last.get(f"RSI_{config['indicators']['rsi_length']}", 50)
-    phase = detect_wyckoff_phase(df)
+    phase = detect_wyckoff_phase_simple(df)
     score = (0.5 if 40 < rsi < 70 else 0) + (0.5 if "MARKUP" in phase or "ACCUMULATION" in phase else 0)
     return 0.20 * min(1.0, score) * 10
 

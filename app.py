@@ -16,7 +16,8 @@ from core.indicators import calculate_indicators
 from core.signals import evaluate_signals, evaluate_exit_conditions
 from core.executive import (
     calculate_position_size, check_safety_gates,
-    check_sector_exposure, check_liquidity
+    check_sector_exposure, check_liquidity,
+    check_portfolio_heat, check_correlation
 )
 from core.dark_pool import detect_hidden_flows
 from core.monte_carlo import run_monte_carlo

@@ -13,7 +13,8 @@ from core.indicators import calculate_indicators
 from core.signals import evaluate_signals, evaluate_exit_conditions
 from core.executive import (
     calculate_position_size, check_safety_gates,
-    check_sector_exposure, check_liquidity
+    check_sector_exposure, check_liquidity,
+    check_portfolio_heat, check_correlation
 )
 from core.dark_pool import detect_hidden_flows
 from core.black_swan import detect_black_swan_event
@@ -59,6 +60,11 @@ async def main():
 
             df_exit = calculate_indicators(df_exit, config)
             current_price = df_exit['Close'].iloc[-1]
+
+            # ── Update highest_price for trailing stop ──
+            if current_price > pos.get('highest_price', pos.get('avg_price', 0)):
+                pos['highest_price'] = current_price
+                broker._save_positions()
 
             # ── Evaluate exit conditions with full position context ──
             exit_type, exit_reason = evaluate_exit_conditions(
@@ -168,7 +174,23 @@ async def main():
                             ihsg_data=ihsg_data
                         )
                         if lot > 0:
-                            logger.info(f"🚀 INITIATING AUTO-BUY: {symbol} ({lot} shares, Risk: {risk_tier}%)")
+                            # ── Portfolio Heat Check ──
+                            risk_amount = lot * abs(summary['close'] - summary['stop_loss'])
+                            heat_ok, heat_pct, heat_msg = check_portfolio_heat(broker, risk_amount, config)
+                            if not heat_ok:
+                                logger.info(f"🌡️ {symbol} BLOCKED: {heat_msg}")
+                                continue
+
+                            # ── Correlation Check ──
+                            corr_warnings = check_correlation(
+                                symbol, df, broker.get_open_positions(), config,
+                                fetch_data_fn=fetch_data
+                            )
+                            if corr_warnings:
+                                logger.info(f"🔗 {symbol} CORRELATION WARNING: {corr_warnings[0]}")
+                                # Don't block, but log warning
+
+                            logger.info(f"🚀 AUTO-BUY: {symbol} ({lot} shares, Risk: {risk_tier}%, Heat: {heat_pct:.1f}%)")
                             success_buy, res = broker.execute_buy(
                                 symbol, summary['close'], lot,
                                 reason=f"GHA-Auto S:{summary['conviction']:.1f} W:{summary.get('weekly_trend', 'N/A')}"

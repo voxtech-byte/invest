@@ -62,12 +62,18 @@
     "initial_equity": 50000000,
     "max_sector_exposure_pct": 25,
     "max_open_positions": 5,
-    "risk_per_trade_pct": 1.5
+    "risk_per_trade_pct": 1.5,
+    "max_portfolio_heat_pct": 6.0,
+    "max_drawdown_pct": 15.0,
+    "max_correlation_threshold": 0.75,
+    "correlation_lookback_days": 30
   },
   "regime": {
     "ihsg_ma_period": 200,
     "choppy_reduce_pct": 30,
-    "min_adx_trending": 20
+    "min_adx_trending": 20,
+    "ihsg_atr_short": 20,
+    "ihsg_atr_long": 60
   },
   "backtest": {
     "lookback_years": 2,
@@ -75,7 +81,7 @@
     "sl_atr_multiplier": 2.0
   },
   "health": {
-    "min_avg_value_rp": 10000000000,
+    "min_avg_value_rp": 5000000000,
     "min_avg_volume": 100000
   },
   "api_keys": {
@@ -96,6 +102,7 @@
   "execution": {
     "auto_trade_threshold": 6.5,
     "alert_only_threshold": 4.5,
+    "exit_threshold": 3.0,
     "aggressive_threshold": 8.5,
     "moderate_threshold": 7.0,
     "conservative_threshold": 6.5,
@@ -103,7 +110,13 @@
     "force_exit_days": 21,
     "tp1_scale_out_pct": 50,
     "tp2_scale_out_pct": 25,
-    "trailing_stop_remainder_pct": 25
+    "trailing_stop_remainder_pct": 25,
+    "trailing_stop_atr_multiplier": 1.5,
+    "trailing_activation_atr": 1.0,
+    "momentum_exit_rsi": 78,
+    "momentum_exit_vol_ratio": 2.0,
+    "spring_conviction_bonus": 1.5,
+    "upthrust_conviction_penalty": 2.0
   },
   "safety": {
     "daily_loss_limit_pct": 5.0,

@@ -187,10 +187,16 @@ def fetch_ihsg(config: dict[str, Any]) -> dict[str, Any] | None:
     # ── Layer 3: Fresh fetch from yfinance ──
     try:
         symbol = config.get('macro', {}).get('index_symbol', '^JKSE')
+        regime_cfg = config.get('regime', {})
+        atr_short = regime_cfg.get('ihsg_atr_short', 20)
+        atr_long = regime_cfg.get('ihsg_atr_long', 60)
+
         ticker = yf.Ticker(symbol)
-        df = ticker.history(period="5d")
+        # Fetch 3 months for rolling ATR regime classification
+        df = ticker.history(period="3mo")
         if df.empty:
             return None
+
         last_close = df['Close'].iloc[-1]
         prev_close = df['Close'].iloc[-2]
         chg = last_close - prev_close
@@ -199,6 +205,29 @@ def fetch_ihsg(config: dict[str, Any]) -> dict[str, Any] | None:
         # Determine trend label
         trend = "BULLISH" if pct > 0.3 else ("BEARISH" if pct < -0.3 else "NEUTRAL")
 
+        # ── Volatility Regime Classification (Rolling ATR comparison) ──
+        volatility_regime = "NORMAL"
+        try:
+            tr = pd.concat([
+                df['High'] - df['Low'],
+                (df['High'] - df['Close'].shift(1)).abs(),
+                (df['Low'] - df['Close'].shift(1)).abs()
+            ], axis=1).max(axis=1)
+
+            atr_short_val = tr.rolling(atr_short).mean().iloc[-1]
+            atr_long_val = tr.rolling(atr_long).mean().iloc[-1] if len(df) >= atr_long else tr.rolling(len(df)).mean().iloc[-1]
+
+            if atr_short_val > 0 and atr_long_val > 0:
+                ratio = atr_short_val / atr_long_val
+                if ratio > 1.3:
+                    volatility_regime = "HIGH"
+                elif ratio < 0.8:
+                    volatility_regime = "LOW"
+                else:
+                    volatility_regime = "NORMAL"
+        except Exception:
+            pass
+
         ihsg_data = {
             "symbol": symbol,
             "last_close": float(last_close),
@@ -206,6 +235,7 @@ def fetch_ihsg(config: dict[str, Any]) -> dict[str, Any] | None:
             "percent": float(pct),
             "pct_1d": float(pct),
             "trend": trend,
+            "volatility_regime": volatility_regime,
         }
 
         # Persist to both caches
@@ -216,9 +246,10 @@ def fetch_ihsg(config: dict[str, Any]) -> dict[str, Any] | None:
         except Exception as e:
             logger.debug(f"IHSG cache file write error: {e}")
 
-        logger.info(f"IHSG: Fresh fetch — {last_close:,.0f} ({pct:+.2f}%) [{trend}]")
+        logger.info(f"IHSG: Fresh — {last_close:,.0f} ({pct:+.2f}%) [{trend}] Vol={volatility_regime}")
         return ihsg_data
 
     except Exception as e:
         logger.error(f"IHSG fetch error: {e}")
         return None
+
