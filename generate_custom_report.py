@@ -1,7 +1,10 @@
 import pandas as pd
 import os
 import yfinance as yf
-from main import fetch_data, calculate_indicators, evaluate_signals, generate_chart, load_config, fetch_ihsg
+from data.data_fetcher import fetch_data, fetch_ihsg
+from core.indicators import calculate_indicators
+from core.signals import evaluate_signals
+from core.utils import load_config, generate_chart
 import warnings
 warnings.filterwarnings('ignore')
 

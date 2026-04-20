@@ -66,3 +66,48 @@ def generate_narrative(s: dict[str, Any]) -> str:
         narratives.append("Volume/Price consensus is neutral. Lacks clear probabilistic edge.")
         
     return " ".join(narratives)
+
+def generate_chart(symbol: str, df, config: dict) -> str:
+    """Generate candlestick chart with moving averages and volume, returns file path."""
+    import mplfinance as mpf
+    import os
+    
+    if df is None or df.empty:
+        return ""
+        
+    # Ensure index is DatetimeIndex
+    if not isinstance(df.index, pd.DatetimeIndex):
+        import pandas as pd
+        df.index = pd.to_datetime(df.index)
+        
+    os.makedirs("report_charts", exist_ok=True)
+    file_path = f"report_charts/{symbol.replace('.JK', '')}_chart.png"
+    
+    # Extract config
+    ind_cfg = config.get('indicators', {})
+    ma_short = ind_cfg.get('ma_short', 50)
+    ma_long = ind_cfg.get('ma_long', 200)
+    
+    # Setup addplots (MAs)
+    addplots = []
+    if f"SMA_{ma_short}" in df.columns:
+        addplots.append(mpf.make_addplot(df[f"SMA_{ma_short}"], color='orange', width=1.5))
+    if f"SMA_{ma_long}" in df.columns:
+        addplots.append(mpf.make_addplot(df[f"SMA_{ma_long}"], color='blue', width=1.5))
+        
+    try:
+        mpf.plot(
+            df,
+            type='candle',
+            style='yahoo',
+            volume=True,
+            addplot=addplots,
+            title=f"\n{symbol} - Sovereign Quant",
+            savefig=file_path,
+            warn_too_much_data=False,
+            figratio=(12, 6)
+        )
+        return file_path
+    except Exception as e:
+        print(f"Chart generation failed for {symbol}: {e}")
+        return ""

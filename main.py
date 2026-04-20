@@ -18,10 +18,10 @@ from core.executive import (
 )
 from core.dark_pool import detect_hidden_flows
 from core.black_swan import detect_black_swan_event
-from data.data_fetcher import fetch_data, fetch_ihsg
 from data.database import DatabaseManager
-from integrations.alerts import format_alert, format_status_report
+from integrations.alerts import format_alert, format_status_report, send_telegram
 from google_sheets_logger import GoogleSheetsLogger
+from core.sector_rotation import analyze_sector_rotation
 
 logger = get_logger(__name__)
 
@@ -94,6 +94,14 @@ async def main():
                             remaining['tp1_hit'] = True
                             broker._save_positions()
                         logger.info(f"[{sym}] TP1 sold. Remaining position trailing at break-even.")
+                        
+                        # Telegram Alert
+                        alert_msg = format_alert({
+                            "type": "PARTIAL_TP1",
+                            "data": remaining if remaining else pos,
+                            "exit_reason": exit_reason
+                        }, extra={"lot": sell_qty})
+                        await send_telegram(alert_msg)
                 else:
                     logger.info(f"[{sym}] TP1 hit but position too small for partial sell ({pos['quantity']} shares)")
 
@@ -110,6 +118,14 @@ async def main():
                         reason=f"GHA Auto-Exit ({exit_reason})"
                     )
                     db.remove_position(sym)
+                    
+                    # Telegram Alert
+                    alert_msg = format_alert({
+                        "type": "AUTO_TRADE_SELL",
+                        "data": pos,
+                        "exit_reason": exit_reason
+                    }, extra={"lot": pos['quantity']})
+                    await send_telegram(alert_msg)
 
         except Exception as e:
             logger.error(f"[{sym}] Exit evaluation error: {e}")
@@ -120,6 +136,7 @@ async def main():
     # ═══════════════════════════════════════════════════════════
     logger.info("📡 Phase 1: Scanning watchlist for entry signals...")
     all_status = []
+    all_dfs = {}
     for symbol in stocks:
         try:
             logger.info(f"Analyzing {symbol}...")
@@ -135,6 +152,7 @@ async def main():
                 continue
 
             df = calculate_indicators(df, config)
+            all_dfs[symbol] = df
             last_row = df.iloc[-1]
 
             # ── Liquidity Filter ──
@@ -202,6 +220,14 @@ async def main():
                                     reason=f"Sovereign GHA Auto-Buy (Wyckoff: {summary['wyckoff_phase']})"
                                 )
                                 db.save_position(symbol, broker.get_open_positions().get(symbol, {}))
+                                
+                                # Telegram Alert
+                                alert_msg = format_alert(signal, extra={
+                                    "lot": lot,
+                                    "heat_pct": heat_pct,
+                                    "regime": ihsg_data.get('volatility_regime', 'NORMAL') if ihsg_data else 'NORMAL'
+                                })
+                                await send_telegram(alert_msg)
                         else:
                             logger.info(f"[{symbol}] Signal valid but lot=0 after sizing")
                     else:
@@ -217,7 +243,29 @@ async def main():
 
     # Save results to DB
     db.save_scan_results(all_status)
+    
+    # Analyze Sector Rotation
+    sector_rotation = analyze_sector_rotation(all_dfs, config)
     logger.info(f"✅ Sweep complete. {len(all_status)} stocks analyzed. Data synced.")
+    
+    # Send Status Report
+    report_msg = format_status_report(all_status, ihsg_data, broker)
+    if sector_rotation:
+        report_msg += "\n*Hot Sectors (20d Momentum):*\n"
+        for sr in sector_rotation[:3]:
+            report_msg += f"🔥 `{sr['sector']}`: {sr['avg_momentum_20d']:+.1f}% (Breadth {sr['breadth_pct']:.0f}%)\n"
+            
+    await send_telegram(report_msg)
+    
+    # Save Equity Snapshot
+    total_pos_value = sum(p['quantity'] * p['avg_price'] for p in broker.get_open_positions().values())
+    total_equity = broker.get_balance() + total_pos_value
+    db.save_equity_snapshot(
+        balance=broker.get_balance(),
+        open_positions_count=len(broker.get_open_positions()),
+        daily_pnl=broker.get_daily_realized_pnl(),
+        total_equity=total_equity
+    )
 
 if __name__ == "__main__":
     asyncio.run(main())

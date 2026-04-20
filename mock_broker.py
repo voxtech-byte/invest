@@ -1,5 +1,5 @@
 """
-Quant Alpha V11 Pro — Mock Broker (Paper Trading Engine)
+Sovereign Quant V14 Pro — Mock Broker (Paper Trading Engine)
 
 Simulates order execution with IDX fee structure for paper trading.
 Tracks positions, equity, and trade history with full persistence.
@@ -11,6 +11,7 @@ Fee Structure (IDX Standard):
 
 import json
 import os
+import math
 from datetime import datetime, date
 from typing import Any
 
@@ -45,6 +46,7 @@ class MockBroker:
         self.initial_equity: float = initial_equity
         self.positions: dict[str, dict[str, Any]] = self._load_positions()
         self.equity: float = self._load_equity()
+        self.peak_equity: float = self._load_peak_equity()
         self.trade_history: list[dict[str, Any]] = self._load_trade_history()
 
     # ── Persistence ────────────────────────────────────────
@@ -76,11 +78,27 @@ class MockBroker:
                 return self.initial_equity
         return self.initial_equity
 
+    def _load_peak_equity(self) -> float:
+        """Load peak equity for drawdown tracking."""
+        if os.path.exists(EQUITY_FILE):
+            try:
+                with open(EQUITY_FILE, 'r') as f:
+                    data = json.load(f)
+                    return data.get("peak_equity", max(data.get("balance", self.initial_equity), self.initial_equity))
+            except Exception:
+                pass
+        return self.initial_equity
+
     def _save_equity(self) -> None:
-        """Persist cash balance to JSON file."""
+        """Persist cash balance and peak equity to JSON file."""
+        # Update peak equity if current balance exceeds it
+        if self.equity > self.peak_equity:
+            self.peak_equity = self.equity
+
         with open(EQUITY_FILE, 'w') as f:
             json.dump({
                 "balance": self.equity,
+                "peak_equity": self.peak_equity,
                 "last_updated": datetime.now(TIMEZONE).isoformat()
             }, f, indent=4)
 
@@ -103,17 +121,7 @@ class MockBroker:
     def _record_trade(self, action: str, symbol: str, price: float,
                       qty: int, fee: float, reason: str = "",
                       realized_pnl: float = 0.0) -> None:
-        """Append a trade record to the history log.
-
-        Args:
-            action: 'BUY' or 'SELL'
-            symbol: IDX ticker symbol
-            price: Execution price per share
-            qty: Number of shares traded
-            fee: Total transaction fee in IDR
-            reason: Trade reason for audit trail
-            realized_pnl: Realized P&L for SELL trades
-        """
+        """Append a trade record to the history log."""
         record = {
             "date": datetime.now(TIMEZONE).isoformat(),
             "action": action,
@@ -134,30 +142,20 @@ class MockBroker:
         """Return current cash balance in IDR."""
         return self.equity
 
-    def get_open_positions(self) -> dict[str, dict[str, Any]]:
-        """Return dictionary of all open positions.
+    def get_peak_equity(self) -> float:
+        """Return peak equity value (for drawdown tracking)."""
+        return self.peak_equity
 
-        Returns:
-            Dict keyed by symbol, each value containing:
-            - symbol, avg_price, quantity, entry_date, tp1_hit, reason
-        """
+    def get_open_positions(self) -> dict[str, dict[str, Any]]:
+        """Return dictionary of all open positions."""
         return self.positions
 
     def get_trade_history(self) -> list[dict[str, Any]]:
-        """Return list of all executed trades (persisted across sessions).
-
-        Returns:
-            List of trade records with date, action, symbol, price,
-            qty, fee, reason, realized_pnl, balance_after.
-        """
+        """Return list of all executed trades."""
         return self.trade_history
 
     def get_daily_realized_pnl(self) -> float:
-        """Sum of all realized P&L from today's trades.
-
-        Returns:
-            Total realized P&L in IDR for the current trading day.
-        """
+        """Sum of all realized P&L from today's trades."""
         today = date.today().isoformat()
         daily_pnl = 0.0
         for trade in self.trade_history:
@@ -165,8 +163,97 @@ class MockBroker:
                 daily_pnl += trade.get("realized_pnl", 0.0)
         return daily_pnl
 
+    # ── Performance Statistics ────────────────────────────
+
+    def get_performance_stats(self) -> dict[str, Any]:
+        """
+        Calculate comprehensive trading performance metrics.
+        Returns: dict with win_rate, avg_pnl_pct, max_drawdown_pct,
+                 sharpe_ratio, sortino_ratio, total_trades, profit_factor
+        """
+        sells = [t for t in self.trade_history if t["action"] == "SELL"]
+
+        if not sells:
+            return {
+                "win_rate": 0.0,
+                "avg_pnl_pct": 0.0,
+                "max_drawdown_pct": 0.0,
+                "sharpe_ratio": None,
+                "sortino_ratio": None,
+                "total_trades": 0,
+                "profit_factor": 0.0,
+            }
+
+        pnl_list = [t.get("realized_pnl", 0.0) for t in sells]
+        total_trades = len(sells)
+        winners = [p for p in pnl_list if p > 0]
+        losers = [p for p in pnl_list if p < 0]
+
+        # Win Rate
+        win_rate = (len(winners) / total_trades * 100) if total_trades > 0 else 0.0
+
+        # Average P&L %
+        avg_pnl = sum(pnl_list) / total_trades if total_trades > 0 else 0.0
+        avg_pnl_pct = (avg_pnl / self.initial_equity) * 100
+
+        # Max Drawdown (from equity curve via balance_after)
+        equity_curve = [self.initial_equity]
+        for t in self.trade_history:
+            bal = t.get("balance_after", equity_curve[-1])
+            equity_curve.append(bal)
+
+        peak = equity_curve[0]
+        max_dd = 0.0
+        for val in equity_curve:
+            if val > peak:
+                peak = val
+            dd = (peak - val) / peak * 100 if peak > 0 else 0
+            if dd > max_dd:
+                max_dd = dd
+
+        # Sharpe Ratio (annualized, assuming daily trades)
+        sharpe = None
+        if len(pnl_list) >= 5:
+            import numpy as np
+            returns = np.array(pnl_list) / self.initial_equity
+            mean_ret = np.mean(returns)
+            std_ret = np.std(returns)
+            if std_ret > 0:
+                sharpe = round((mean_ret / std_ret) * math.sqrt(252), 2)
+
+        # Sortino Ratio (only downside volatility)
+        sortino = None
+        if len(pnl_list) >= 5:
+            import numpy as np
+            returns = np.array(pnl_list) / self.initial_equity
+            mean_ret = np.mean(returns)
+            downside = returns[returns < 0]
+            if len(downside) > 0:
+                downside_std = np.std(downside)
+                if downside_std > 0:
+                    sortino = round((mean_ret / downside_std) * math.sqrt(252), 2)
+
+        # Profit Factor
+        total_win = sum(winners) if winners else 0
+        total_loss = abs(sum(losers)) if losers else 0
+        profit_factor = round(total_win / total_loss, 2) if total_loss > 0 else float('inf')
+
+        return {
+            "win_rate": round(win_rate, 1),
+            "avg_pnl_pct": round(avg_pnl_pct, 2),
+            "max_drawdown_pct": round(max_dd, 1),
+            "sharpe_ratio": sharpe,
+            "sortino_ratio": sortino,
+            "total_trades": total_trades,
+            "profit_factor": profit_factor,
+        }
+
+    # ── Order Execution ───────────────────────────────────
+
     def execute_buy(self, symbol: str, price: float, lot: int,
-                    reason: str = "") -> tuple[bool, dict[str, Any] | str]:
+                    reason: str = "",
+                    stop_loss: float = 0, target_1: float = 0,
+                    target_2: float = 0) -> tuple[bool, dict[str, Any] | str]:
         """Execute a mock buy order with IDX fee structure.
 
         Args:
@@ -174,11 +261,12 @@ class MockBroker:
             price: Entry price per share in IDR
             lot: Number of shares (must be > 0, ideally multiple of 100)
             reason: Trade reason for logging
+            stop_loss: ATR-based stop loss level to store in position
+            target_1: First take-profit target
+            target_2: Second take-profit target
 
         Returns:
             Tuple of (success, result_dict_or_error_string).
-            On success, result_dict contains: action, symbol, price,
-            qty, fee, total_cost, balance.
         """
         if lot <= 0:
             logger.error(f"[{symbol}] Invalid lot size: {lot}")
@@ -206,6 +294,13 @@ class MockBroker:
             new_price = ((old_qty * old_price) + cost) / new_qty
             self.positions[symbol]['avg_price'] = new_price
             self.positions[symbol]['quantity'] = new_qty
+            # Update risk levels
+            if stop_loss > 0:
+                self.positions[symbol]['stop_loss'] = stop_loss
+            if target_1 > 0:
+                self.positions[symbol]['target_1'] = target_1
+            if target_2 > 0:
+                self.positions[symbol]['target_2'] = target_2
             logger.info(
                 f"[{symbol}] BUY (avg up/down) — "
                 f"{qty:,} shares @ {price:,.0f}, total {new_qty:,} shares"
@@ -217,6 +312,10 @@ class MockBroker:
                 'quantity': qty,
                 'entry_date': datetime.now(TIMEZONE).isoformat(),
                 'tp1_hit': False,
+                'highest_price': price,
+                'stop_loss': stop_loss if stop_loss > 0 else price * 0.95,
+                'target_1': target_1,
+                'target_2': target_2,
                 'reason': reason
             }
             logger.info(
@@ -250,8 +349,6 @@ class MockBroker:
 
         Returns:
             Tuple of (success, result_dict_or_error_string).
-            On success, result_dict contains: action, symbol, price,
-            qty, fee, net_revenue, realized_pnl, balance, reason.
         """
         if symbol not in self.positions:
             logger.error(f"[{symbol}] SELL failed — position not found")

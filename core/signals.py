@@ -4,6 +4,7 @@ from datetime import datetime, timedelta
 from typing import Any, Dict, Optional
 from logger import get_logger
 from core.utils import TIMEZONE
+from core.monte_carlo import run_monte_carlo
 
 logger = get_logger(__name__)
 
@@ -344,6 +345,21 @@ def evaluate_signals(
     target_2 = round(close + atr * 4, 0)
 
     bee_score, bee_label = calculate_bee_flow(df)
+    
+    # ── Monte Carlo Risk Integration ──
+    mc_data = {}
+    if final_conviction >= exec_cfg.get('alert_only_threshold', 4.5):
+        try:
+            mc_data = run_monte_carlo(df, days=10, iterations=1000)
+            if "error" not in mc_data:
+                risk_rating = mc_data.get('risk_rating', 'MODERATE')
+                if risk_rating == 'HIGH':
+                    final_conviction -= 0.5
+                    logger.debug(f"[{symbol}] Conviction payload reduced (-0.5) due to HIGH Monte Carlo Risk")
+                # Clamp again
+                final_conviction = max(0.0, min(10.0, final_conviction))
+        except Exception as e:
+            logger.warning(f"[{symbol}] Monte Carlo error: {e}")
 
     status_summary = {
         'symbol': symbol,
@@ -359,6 +375,8 @@ def evaluate_signals(
         'atr': atr,
         'weekly_trend': weekly_trend,
         'vwap': vwap,
+        'mc_risk_rating': mc_data.get('risk_rating'),
+        'mc_prob_profit': mc_data.get('prob_profit')
     }
 
     # ══════════════════════════════════════════════════════════

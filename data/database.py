@@ -127,3 +127,51 @@ class DatabaseManager:
                 json.dump(results, f, indent=4)
         except Exception as e:
             logger.error(f"Local scan results save error: {e}")
+
+    # ── EQUITY SNAPSHOTS ───────────────────────────────────────
+
+    def save_equity_snapshot(self, balance: float, open_positions_count: int,
+                             daily_pnl: float = 0.0, total_equity: float = 0.0):
+        """
+        Save daily equity snapshot for equity curve tracking.
+        Uses UPSERT on snapshot_date to avoid duplicates.
+        """
+        today_str = datetime.utcnow().strftime("%Y-%m-%d")
+
+        snapshot = {
+            "snapshot_date": today_str,
+            "balance": float(balance),
+            "open_positions": open_positions_count,
+            "daily_pnl": float(daily_pnl),
+            "total_equity": float(total_equity if total_equity > 0 else balance),
+        }
+
+        if self.use_cloud:
+            try:
+                self.client.table("equity_snapshots").upsert(
+                    snapshot, on_conflict="snapshot_date"
+                ).execute()
+                logger.info(f"📊 Equity snapshot saved: {today_str} — Rp {balance:,.0f}")
+            except Exception as e:
+                logger.error(f"Supabase equity snapshot error: {e}")
+
+        # Local mirror append
+        try:
+            snapshot_file = "equity_snapshots.json"
+            snapshots = []
+            if os.path.exists(snapshot_file):
+                with open(snapshot_file, 'r') as f:
+                    snapshots = json.load(f)
+
+            # Update or append
+            existing = next((s for s in snapshots if s.get("snapshot_date") == today_str), None)
+            if existing:
+                existing.update(snapshot)
+            else:
+                snapshots.append(snapshot)
+
+            with open(snapshot_file, 'w') as f:
+                json.dump(snapshots, f, indent=2)
+        except Exception as e:
+            logger.error(f"Local equity snapshot error: {e}")
+

@@ -28,6 +28,9 @@ def run_monte_carlo(df: pd.DataFrame, days: int = 10, iterations: int = 1000) ->
     
     mean_outcome = np.mean(final_prices)
     var_95 = np.percentile(final_prices, 5) # 5th percentile (95% confidence VaR)
+    p25 = np.percentile(final_prices, 25)
+    p75 = np.percentile(final_prices, 75)
+    p95 = np.percentile(final_prices, 95)
     prob_profit = (np.sum(final_prices > last_price) / iterations) * 100
     
     # Expected Shortfall (CVaR) - average of values below VaR
@@ -36,6 +39,12 @@ def run_monte_carlo(df: pd.DataFrame, days: int = 10, iterations: int = 1000) ->
     return {
         "current_price": round(float(last_price), 2),
         "expected_price_avg": round(float(mean_outcome), 2),
+        "percentiles": {
+            "p5": round(float(var_95), 2),
+            "p25": round(float(p25), 2),
+            "p75": round(float(p75), 2),
+            "p95": round(float(p95), 2),
+        },
         "var_95": round(float(var_95), 2),
         "prob_profit": round(float(prob_profit), 1),
         "var_pct": round(((var_95 - last_price) / last_price) * 100, 2),
