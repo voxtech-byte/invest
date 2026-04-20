@@ -1,33 +1,38 @@
-name: Quant Alpha Auto-Trade V10
+name: Quant Alpha Auto-Trade V14
 
 on:
   schedule:
-    # Every 15 minutes during Jakarta market hours (09:00-16:00 WIB = 02:00-09:00 UTC)
-    # Monday to Friday only
-    - cron: '*/15 2-9 * * 1-5'
+    # Strategic Jakarta market schedule (WIB = UTC+7)
+    - cron: '30 1 * * 1-5'   # 08:30 WIB — Pre-open scan
+    - cron: '00 2 * * 1-5'   # 09:00 WIB — Session 1 open
+    - cron: '30 6 * * 1-5'   # 13:30 WIB — Session 2 open
+    - cron: '00 9 * * 1-5'   # 16:00 WIB — Post-close sweep
   workflow_dispatch: # Allow manual trigger
+
+permissions:
+  contents: write
 
 jobs:
   run-auto-trade:
     runs-on: ubuntu-latest
-    
+
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
           cache: 'pip'
-          
+
       - name: Install Dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          
+
       - name: Inject Google Sheets Credentials
         run: echo "${{ secrets.GOOGLE_SHEETS_CREDENTIALS }}" | base64 --decode > service_account.json
 
@@ -35,6 +40,11 @@ jobs:
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          ALPHA_VANTAGE_KEY: ${{ secrets.ALPHA_VANTAGE_KEY }}
+          FCS_API_KEY: ${{ secrets.FCS_API_KEY }}
+          SPREADSHEET_ID: ${{ secrets.SPREADSHEET_ID }}
         run: |
           python main.py
 
@@ -42,6 +52,7 @@ jobs:
         run: |
           git config --local user.email "bot@quant-alpha.auto"
           git config --local user.name "Quant Alpha Bot"
-          git add -f active_positions.json portfolio_equity.json trade_history.csv forward_test.csv last_signals.json 2>/dev/null || true
+          git pull --rebase origin main || true
+          git add -f active_positions.json portfolio_equity.json trade_history.csv forward_test.csv last_signals.json trade_log.json ihsg_cache.json 2>/dev/null || true
           git diff --cached --quiet || git commit -m "bot: update state $(date -u +'%Y-%m-%d %H:%M UTC')"
           git push || echo "Nothing to push"

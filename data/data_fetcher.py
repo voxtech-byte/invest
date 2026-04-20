@@ -1,10 +1,18 @@
 import yfinance as yf
 import pandas as pd
 import requests
+import json
+import os
+import time
 from typing import Any, Dict
 from logger import get_logger
 
 logger = get_logger(__name__)
+
+
+# ══════════════════════════════════════════════════════════════
+# DATA FETCHERS (Multi-Source with Fallback)
+# ══════════════════════════════════════════════════════════════
 
 def _fetch_yfinance(symbol: str, config: dict[str, Any], period: str = "1y") -> pd.DataFrame | None:
     try:
@@ -28,7 +36,7 @@ def _fetch_yfinance(symbol: str, config: dict[str, Any], period: str = "1y") -> 
 def _fetch_alphavantage(symbol: str, config: dict[str, Any]) -> pd.DataFrame | None:
     api_keys = config.get('api_keys', {})
     key = api_keys.get('alpha_vantage')
-    if not key or key == "YOUR_KEY":
+    if not key or key == "YOUR_KEY" or "YOUR_" in key:
         return None
     try:
         url = f"https://www.alphavantage.co/query?function=TIME_SERIES_DAILY&symbol={symbol}&apikey={key}&outputsize=compact"
@@ -54,7 +62,7 @@ def _fetch_alphavantage(symbol: str, config: dict[str, Any]) -> pd.DataFrame | N
 def _fetch_fcsapi(symbol: str, config: dict[str, Any]) -> pd.DataFrame | None:
     api_keys = config.get('api_keys', {})
     key = api_keys.get('fcs_api')
-    if not key or key == "YOUR_KEY":
+    if not key or key == "YOUR_KEY" or "YOUR_" in key:
         return None
     try:
         url = f"https://fcsapi.com/api-v3/stock/history?symbol={symbol}&period=1d&access_key={key}"
@@ -76,9 +84,44 @@ def _fetch_fcsapi(symbol: str, config: dict[str, Any]) -> pd.DataFrame | None:
         logger.debug(f"[{symbol}] FCS API error: {e}")
         return None
 
+
+# ══════════════════════════════════════════════════════════════
+# MAIN FETCH WITH SUSPEND/DELIST DETECTION
+# ══════════════════════════════════════════════════════════════
+
+def _is_suspended(df: pd.DataFrame, symbol: str) -> bool:
+    """
+    Detect if a stock is suspended or delisted.
+    Indicators: zero volume for last N days, or flatline closing prices.
+    """
+    if df is None or df.empty:
+        return True
+
+    # Check last 5 trading days
+    recent = df.tail(5)
+    if len(recent) < 3:
+        return True
+
+    # All volumes are zero → likely suspended
+    if (recent['Volume'] == 0).all():
+        logger.warning(f"[{symbol}] Likely SUSPENDED: Zero volume for {len(recent)} consecutive days")
+        return True
+
+    # Flat closing price for 5+ days → possibly halted
+    if recent['Close'].nunique() == 1 and len(recent) >= 5:
+        logger.warning(f"[{symbol}] Likely HALTED: Flat close price for {len(recent)} days")
+        return True
+
+    return False
+
+
 def fetch_data(symbol: str, config: dict[str, Any]) -> pd.DataFrame | None:
+    """
+    Multi-source data fetcher with suspend/delist detection and retry.
+    """
     df = _fetch_yfinance(symbol, config)
     source = "yfinance"
+
     if df is None or df.empty:
         df = _fetch_alphavantage(symbol, config)
         source = "Alpha Vantage"
@@ -86,8 +129,14 @@ def fetch_data(symbol: str, config: dict[str, Any]) -> pd.DataFrame | None:
         df = _fetch_fcsapi(symbol, config)
         source = "FCS API"
     if df is None or df.empty:
+        logger.warning(f"[{symbol}] No data from any source — skipping")
         return None
-    logger.info(f"[{symbol}] Data successfully fetched via {source}")
+
+    # Suspend/delist check
+    if _is_suspended(df, symbol):
+        return None
+
+    logger.info(f"[{symbol}] Data successfully fetched via {source} ({len(df)} rows)")
     try:
         lookback = config['signals']['price_peak_lookback_days']
         df['Peak_Price'] = df['High'].rolling(window=lookback, min_periods=1).max()
@@ -95,23 +144,81 @@ def fetch_data(symbol: str, config: dict[str, Any]) -> pd.DataFrame | None:
         pass
     return df
 
+
+# ══════════════════════════════════════════════════════════════
+# IHSG FETCH WITH FILE-BACKED PERSISTENT CACHE
+# ══════════════════════════════════════════════════════════════
+
+IHSG_CACHE_FILE = "ihsg_cache.json"
+IHSG_CACHE_TTL = 300  # 5 minutes
+
+# In-memory cache for same-process reuse
+_IHSG_MEMORY_CACHE = {"data": None, "timestamp": 0}
+
+
 def fetch_ihsg(config: dict[str, Any]) -> dict[str, Any] | None:
+    """
+    Fetch IHSG data with dual-layer caching:
+    1. In-memory (for same process, e.g. Streamlit rerun)
+    2. File-backed (for cross-process, e.g. GHA ephemeral runners)
+    """
+    global _IHSG_MEMORY_CACHE
+    now = time.time()
+
+    # ── Layer 1: In-memory cache ──
+    if _IHSG_MEMORY_CACHE["data"] and (now - _IHSG_MEMORY_CACHE["timestamp"] < IHSG_CACHE_TTL):
+        logger.debug("IHSG: served from memory cache")
+        return _IHSG_MEMORY_CACHE["data"]
+
+    # ── Layer 2: File-backed cache ──
+    if os.path.exists(IHSG_CACHE_FILE):
+        try:
+            with open(IHSG_CACHE_FILE, 'r') as f:
+                cached = json.load(f)
+            cache_age = now - cached.get("timestamp", 0)
+            if cache_age < IHSG_CACHE_TTL:
+                ihsg_data = cached["data"]
+                _IHSG_MEMORY_CACHE = {"data": ihsg_data, "timestamp": cached["timestamp"]}
+                logger.debug(f"IHSG: served from file cache (age: {cache_age:.0f}s)")
+                return ihsg_data
+        except Exception as e:
+            logger.debug(f"IHSG cache file read error: {e}")
+
+    # ── Layer 3: Fresh fetch from yfinance ──
     try:
         symbol = config.get('macro', {}).get('index_symbol', '^JKSE')
         ticker = yf.Ticker(symbol)
         df = ticker.history(period="5d")
-        if df.empty: return None
+        if df.empty:
+            return None
         last_close = df['Close'].iloc[-1]
         prev_close = df['Close'].iloc[-2]
         chg = last_close - prev_close
         pct = (chg / prev_close) * 100
-        return {
+
+        # Determine trend label
+        trend = "BULLISH" if pct > 0.3 else ("BEARISH" if pct < -0.3 else "NEUTRAL")
+
+        ihsg_data = {
             "symbol": symbol,
-            "last_close": last_close,
-            "change": chg,
-            "percent": pct,
-            "df": df
+            "last_close": float(last_close),
+            "change": float(chg),
+            "percent": float(pct),
+            "pct_1d": float(pct),
+            "trend": trend,
         }
+
+        # Persist to both caches
+        _IHSG_MEMORY_CACHE = {"data": ihsg_data, "timestamp": now}
+        try:
+            with open(IHSG_CACHE_FILE, 'w') as f:
+                json.dump({"data": ihsg_data, "timestamp": now}, f, indent=2)
+        except Exception as e:
+            logger.debug(f"IHSG cache file write error: {e}")
+
+        logger.info(f"IHSG: Fresh fetch — {last_close:,.0f} ({pct:+.2f}%) [{trend}]")
+        return ihsg_data
+
     except Exception as e:
         logger.error(f"IHSG fetch error: {e}")
         return None

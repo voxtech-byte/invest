@@ -7,6 +7,8 @@ portfolio_equity.json
 trade_history.csv
 forward_test.csv
 last_signals.json
+trade_log.json
+ihsg_cache.json
 
 # Logs
 *.log
