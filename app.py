@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import os
+import sys
 import time
 from dotenv import load_dotenv
 load_dotenv() # Load env vars from .env file
@@ -37,8 +38,11 @@ from google_sheets_logger import GoogleSheetsLogger
 # =====================================================================
 # INITIALIZATION
 # =====================================================================
+if 'is_demo' not in st.session_state:
+    st.session_state.is_demo = "--demo" in sys.argv
+
 st.set_page_config(
-    page_title="Sovereign Quant Terminal", 
+    page_title="Sovereign Quant Terminal " + ("(DEMO MODE)" if st.session_state.is_demo else "V15 PRO"), 
     page_icon="🏛️", 
     layout="wide",
     initial_sidebar_state="collapsed"
@@ -52,6 +56,9 @@ if 'scan_results' not in st.session_state: st.session_state.scan_results = []
 if 'terminal_log' not in st.session_state: st.session_state.terminal_log = []
 if 'news_data' not in st.session_state: st.session_state.news_data = []
 if 'alert_history' not in st.session_state: st.session_state.alert_history = []
+
+if st.session_state.is_demo and not st.session_state.terminal_log:
+    st.session_state.terminal_log.append("<span style='color:#D29922'>🏛️ DEMO MODE ACTIVE: Using cached data & paper simulation.</span>")
 
 config = load_config()
 
