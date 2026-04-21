@@ -132,5 +132,9 @@
     "rsi_phase": 0.20,
     "volatility": 0.15,
     "macro": 0.05
+  },
+  "commercial": {
+    "license_key": "YOUR_LICENSE_KEY_HERE",
+    "terminal_version": "V15-PRO"
   }
 }

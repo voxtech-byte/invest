@@ -130,6 +130,12 @@ def validate_config(config: dict) -> list:
     if unmapped:
         issues.append(f"🟡 SECTORS: {len(unmapped)} stocks have no sector mapping: {unmapped[:5]}...")
 
+    # ── 5. License Validation ──
+    commercial = config.get("commercial", {})
+    license_key = commercial.get("license_key", "")
+    if not license_key or "YOUR_LICENSE" in license_key:
+        issues.append("🔴 LICENSE: Invalid or missing commercial license_key. Please update config.json.")
+
     # Log results
     if issues:
         logger.warning(f"⚙️ Config Validator found {len(issues)} issue(s)")
