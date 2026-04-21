@@ -24,6 +24,8 @@ from core.dark_pool import detect_hidden_flows
 from core.monte_carlo import run_monte_carlo
 from core.black_swan import detect_black_swan_event
 from core.sector_rotation import analyze_sector_rotation
+from core.config_validator import validate_config
+from core.health_check import check_health
 from data.data_fetcher import fetch_data, fetch_ihsg
 from data.database import DatabaseManager
 from integrations.news_aggregator import fetch_indonesia_market_news, analyze_political_keywords
@@ -52,6 +54,10 @@ if 'news_data' not in st.session_state: st.session_state.news_data = []
 if 'alert_history' not in st.session_state: st.session_state.alert_history = []
 
 config = load_config()
+
+# ── V15: Startup Config Validation ──
+_config_issues = validate_config(config)
+
 db = DatabaseManager()
 # Initialize Broker with Sovereign balance
 broker = MockBroker(initial_equity=config.get('portfolio', {}).get('initial_equity', 50000000))
@@ -202,10 +208,15 @@ with col_equity:
 
 with col_controls:
     st.markdown("<div style='height:15px;'></div>", unsafe_allow_html=True)
-    ap_toggle = st.toggle("ACTIVATE AUTO-PILOT SCAN", value=st.session_state.auto_pilot)
-    if ap_toggle != st.session_state.auto_pilot:
-        st.session_state.auto_pilot = ap_toggle
-        st.rerun()
+    c_left, c_right = st.columns(2)
+    with c_left:
+        ap_toggle = st.toggle("AUTO-PILOT", value=st.session_state.auto_pilot)
+        if ap_toggle != st.session_state.auto_pilot:
+            st.session_state.auto_pilot = ap_toggle
+            st.rerun()
+    with c_right:
+        # Paper vs Live badge
+        st.markdown("<div style='display:inline-block; font-size:0.65rem; color:#D29922; border:1px solid #D29922; padding:2px 8px; border-radius:4px; font-weight:700; margin-top:6px;'>📄 PAPER MODE</div>", unsafe_allow_html=True)
 
 # =====================================================================
 # MAIN LAYOUT: 70/30 ASYMMETRIC SPLIT
@@ -246,9 +257,120 @@ with st.sidebar:
                     st.error("Failed to compile dataset. Check logs.")
     
     st.divider()
-    st.markdown("### 🛰️ SYSTEM HEALTH")
-    st.write(f"Latency: {round(time.time() % 1, 3)}ms")
-    st.write(f"Cloud DB: {'Connected' if db.use_cloud else 'Local Mode'}")
+
+    # ═════ V15: ONBOARDING CHECKLIST & HEALTH ═════
+    st.markdown("### 🛡️ SYSTEM HEALTH")
+    if st.button("🔄 Run Health Check", use_container_width=True):
+        with st.spinner("Checking all connections..."):
+            st.session_state.health_results = check_health(config)
+
+    if 'health_results' in st.session_state:
+        hr = st.session_state.health_results
+        summary = hr.get('_summary', {})
+        st.markdown(f"**{summary.get('passed', 0)}/{summary.get('total', 0)} services connected**")
+        for svc in ['supabase', 'telegram', 'yfinance', 'google_sheets']:
+            r = hr.get(svc, {})
+            icon = '✅' if r.get('ok') else '❌'
+            lat = f" ({r.get('latency_ms', 0):.0f}ms)" if r.get('ok') else ""
+            st.markdown(f"{icon} **{svc.replace('_', ' ').title()}**: {r.get('message', 'N/A')}{lat}")
+    else:
+        st.info("Click 'Run Health Check' to test all connections.")
+
+    # Config Warnings
+    if _config_issues:
+        st.divider()
+        st.markdown("### ⚙️ Config Warnings")
+        for issue in _config_issues[:5]:
+            st.warning(issue)
+        if len(_config_issues) > 5:
+            st.caption(f"... and {len(_config_issues) - 5} more.")
+
+    st.divider()
+
+    # ═════ WATCHLIST MANAGER ═════
+    st.markdown("### 📝 WATCHLIST MANAGER")
+    current_stocks = config.get('stocks', [])
+    st.caption(f"Currently tracking {len(current_stocks)} stocks.")
+
+    new_ticker = st.text_input("Add Ticker (e.g. BBCA.JK)", key="add_ticker_input")
+    col_add, col_remove = st.columns(2)
+    with col_add:
+        if st.button("➕ Add", use_container_width=True):
+            ticker = new_ticker.strip().upper()
+            if ticker and ticker not in current_stocks:
+                current_stocks.append(ticker)
+                config['stocks'] = current_stocks
+                import json
+                with open('config.json', 'w') as f:
+                    json.dump(config, f, indent=2)
+                st.success(f"Added {ticker}")
+                st.rerun()
+            elif ticker in current_stocks:
+                st.warning(f"{ticker} already in watchlist")
+
+    remove_ticker = st.selectbox("Remove Ticker", options=[""] + current_stocks, key="remove_ticker_select")
+    with col_remove:
+        if st.button("➖ Remove", use_container_width=True):
+            if remove_ticker and remove_ticker in current_stocks:
+                current_stocks.remove(remove_ticker)
+                config['stocks'] = current_stocks
+                import json
+                with open('config.json', 'w') as f:
+                    json.dump(config, f, indent=2)
+                st.success(f"Removed {remove_ticker}")
+                st.rerun()
+
+    st.divider()
+
+    # ═════ MANUAL OVERRIDE ═════
+    st.markdown("### ⚡ MANUAL OVERRIDE")
+    override_sym = st.selectbox("Select Stock", options=[""] + current_stocks, key="override_sym")
+
+    col_fbuy, col_fsell = st.columns(2)
+    with col_fbuy:
+        if st.button("🚀 FORCE BUY", use_container_width=True, type="primary"):
+            if override_sym:
+                try:
+                    df_override = fetch_data(override_sym, config)
+                    if df_override is not None and not df_override.empty:
+                        price = df_override['Close'].iloc[-1]
+                        lot = 100  # Minimum lot
+                        success, res = broker.execute_buy(
+                            override_sym, price, lot,
+                            reason="MANUAL FORCE BUY"
+                        )
+                        if success:
+                            sheet_logger.log_trade(override_sym, "BUY", price, lot, reason="Manual Override")
+                            st.success(f"Bought {lot} shares of {override_sym} @ {format_rp(price)}")
+                            st.balloons()
+                        else:
+                            st.error(f"Buy failed: {res}")
+                except Exception as e:
+                    st.error(f"Error: {e}")
+            else:
+                st.warning("Select a stock first")
+
+    with col_fsell:
+        if st.button("🚨 EMERGENCY SELL", use_container_width=True, type="secondary"):
+            if override_sym:
+                pos = broker.get_open_positions().get(override_sym)
+                if pos:
+                    try:
+                        df_override = fetch_data(override_sym, config)
+                        price = df_override['Close'].iloc[-1] if df_override is not None else pos['avg_price']
+                        success, res = broker.execute_sell(
+                            override_sym, price,
+                            reason="MANUAL EMERGENCY SELL"
+                        )
+                        if success:
+                            sheet_logger.log_trade(override_sym, "SELL", price, pos['quantity'], reason="Emergency Manual Sell")
+                            st.success(f"SOLD all {override_sym} @ {format_rp(price)}")
+                    except Exception as e:
+                        st.error(f"Error: {e}")
+                else:
+                    st.warning(f"No open position for {override_sym}")
+            else:
+                st.warning("Select a stock first")
 
 # --- LEFT COLUMN (70%): CHART & LOGS ---
 with main_left:
@@ -630,6 +752,8 @@ if st.session_state.auto_pilot:
                         success, res = broker.execute_sell(sym, current_price, reason=f"Exit: {exit_reason}")
                         if success:
                             sheet_logger.log_trade(sym, "SELL", current_price, pos['quantity'], reason=f"Auto-Pilot Exit ({exit_reason})")
+                            ts = datetime.now(TIMEZONE).strftime("%Y-%m-%d %H:%M")
+                            st.session_state.alert_history.append(f"[{ts}] 🔴 SELL {sym.split('.')[0]} @ {format_rp(current_price)} — {exit_reason}")
                             st.balloons()
                 except Exception as e:
                     log_to_terminal(f"❌ Exit error {sym}: {e}", is_critical=True)
@@ -708,6 +832,8 @@ if st.session_state.auto_pilot:
                                     success, res = broker.execute_buy(symbol, summary['close'], lot, reason=f"Terminal-Live S:{summary['conviction']:.1f}")
                                     if success:
                                         sheet_logger.log_trade(symbol, "BUY", summary['close'], lot, conviction=summary['conviction'], reason="Sovereign Terminal Auto-Buy")
+                                        ts = datetime.now(TIMEZONE).strftime("%Y-%m-%d %H:%M")
+                                        st.session_state.alert_history.append(f"[{ts}] 🟢 BUY {symbol.split('.')[0]} x{lot} @ {format_rp(summary['close'])} | Score: {summary['conviction']:.1f}")
                                         st.balloons()
 
                         else:

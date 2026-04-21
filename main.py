@@ -24,12 +24,18 @@ from data.database import DatabaseManager
 from integrations.alerts import format_alert, format_status_report, send_telegram
 from google_sheets_logger import GoogleSheetsLogger
 from core.sector_rotation import analyze_sector_rotation
+from core.config_validator import validate_config
 
 logger = get_logger(__name__)
 
 async def main():
-    logger.info("🏛️ SOVEREIGN QUANT TERMINAL V14: ENGINE INITIALIZED")
+    logger.info("🏛️ SOVEREIGN QUANT TERMINAL V15: ENGINE INITIALIZED")
     config = load_config()
+
+    # ── Config Validation ──
+    config_issues = validate_config(config)
+    if config_issues:
+        logger.warning(f"⚠️ Config Validator found {len(config_issues)} issues. Check logs.")
     
     # ── Market Hours Gate ──
     from core.utils import is_market_open
