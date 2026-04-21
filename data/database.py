@@ -175,3 +175,32 @@ class DatabaseManager:
         except Exception as e:
             logger.error(f"Local equity snapshot error: {e}")
 
+    def get_equity_snapshots(self) -> list:
+        """
+        Retrieve equity snapshots for equity curve rendering.
+        Returns list of dicts with snapshot_date, balance, total_equity, etc.
+        """
+        snapshots = []
+
+        # 1. Try Cloud Primary
+        if self.use_cloud:
+            try:
+                res = self.client.table("equity_snapshots") \
+                    .select("*") \
+                    .order("snapshot_date", desc=False) \
+                    .execute()
+                if res.data:
+                    return res.data
+            except Exception as e:
+                logger.error(f"Supabase equity read error: {e}")
+
+        # 2. Fallback to local
+        try:
+            snapshot_file = "equity_snapshots.json"
+            if os.path.exists(snapshot_file):
+                with open(snapshot_file, 'r') as f:
+                    snapshots = json.load(f)
+        except Exception as e:
+            logger.error(f"Local equity read error: {e}")
+
+        return snapshots

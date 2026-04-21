@@ -17,11 +17,13 @@ from core.signals import evaluate_signals, evaluate_exit_conditions
 from core.executive import (
     calculate_position_size, check_safety_gates,
     check_sector_exposure, check_liquidity,
-    check_portfolio_heat, check_correlation
+    check_portfolio_heat, check_correlation,
+    calculate_kelly_suggestion, run_scenario_analysis
 )
 from core.dark_pool import detect_hidden_flows
 from core.monte_carlo import run_monte_carlo
 from core.black_swan import detect_black_swan_event
+from core.sector_rotation import analyze_sector_rotation
 from data.data_fetcher import fetch_data, fetch_ihsg
 from data.database import DatabaseManager
 from integrations.news_aggregator import fetch_indonesia_market_news, analyze_political_keywords
@@ -47,6 +49,7 @@ if 'stock_idx' not in st.session_state: st.session_state.stock_idx = 0
 if 'scan_results' not in st.session_state: st.session_state.scan_results = []
 if 'terminal_log' not in st.session_state: st.session_state.terminal_log = []
 if 'news_data' not in st.session_state: st.session_state.news_data = []
+if 'alert_history' not in st.session_state: st.session_state.alert_history = []
 
 config = load_config()
 db = DatabaseManager()
@@ -148,8 +151,24 @@ def compile_institutional_data(selected_tickers, config, ihsg_data=None):
 col_brand, col_ihsg, col_equity, col_controls = st.columns([1.5, 2.5, 3, 2])
 
 with col_brand:
-    st.markdown(f"### {get_icon('zap')} SOVEREIGN <span style='color:#58a6ff'>V14</span>", unsafe_allow_html=True)
-    st.markdown("<span style='font-size:0.7rem; color:#8b949e;'>QUANTITATIVE COMMAND CENTER</span>", unsafe_allow_html=True)
+    st.markdown(f"### {get_icon('zap')} SOVEREIGN <span style='color:#58a6ff'>V15</span>", unsafe_allow_html=True)
+    # Market Regime Indicator
+    regime_label = "NEUTRAL"
+    regime_color = "#8b949e"
+    if ihsg:
+        vol_regime = ihsg.get('volatility_regime', 'NORMAL')
+        trend = ihsg.get('trend', 'NEUTRAL')
+        pct = ihsg.get('percent', 0)
+        if trend == 'BULLISH' and vol_regime != 'HIGH':
+            regime_label = "RISK-ON"
+            regime_color = "#3FB950"
+        elif trend == 'BEARISH' or vol_regime == 'HIGH':
+            regime_label = "RISK-OFF"
+            regime_color = "#F85149"
+        else:
+            regime_label = "NEUTRAL"
+            regime_color = "#D29922"
+    st.markdown(f"<div style='display:inline-block; font-size:0.7rem; color:{regime_color}; border:1px solid {regime_color}; padding:2px 8px; border-radius:4px; font-weight:700;'>{regime_label}</div>", unsafe_allow_html=True)
 
 with col_ihsg:
     ihsg = get_cached_ihsg(config)  # Cached to prevent yfinance rate limiting
@@ -280,8 +299,187 @@ with main_left:
         """, unsafe_allow_html=True)
     
     st.markdown(f"<h4 style='display:flex; align-items:center; gap:8px;'>{get_icon('activity')} TERMINAL LOG</h4>", unsafe_allow_html=True)
-    log_content = "<div style='background:#010409; border:1px solid #30363d; padding:15px; height:250px; overflow-y:auto; font-family:\"JetBrains Mono\", monospace; font-size:0.8rem;'>" + "<br>".join(st.session_state.terminal_log) + "</div>"
+    log_content = "<div style='background:#010409; border:1px solid #30363d; padding:15px; height:180px; overflow-y:auto; font-family:\"JetBrains Mono\", monospace; font-size:0.8rem;'>" + "<br>".join(st.session_state.terminal_log) + "</div>"
     st.markdown(log_content, unsafe_allow_html=True)
+
+    # ═════════════════════════════════════════════════════════
+    # V15 PREMIUM PANELS (TABBED)
+    # ═════════════════════════════════════════════════════════
+    tab_eq, tab_sector, tab_risk, tab_dna, tab_alerts = st.tabs([
+        "📈 Equity Curve", "🔥 Sector Heatmap", "🛡️ Risk Dashboard", "🧬 Trade DNA", "📋 Alert History"
+    ])
+
+    # ── TAB 1: EQUITY CURVE ──
+    with tab_eq:
+        try:
+            eq_data = db.get_equity_snapshots() if hasattr(db, 'get_equity_snapshots') else []
+        except Exception:
+            eq_data = []
+        if eq_data and len(eq_data) >= 2:
+            eq_df = pd.DataFrame(eq_data)
+            eq_df['date'] = pd.to_datetime(eq_df.get('snapshot_date', eq_df.get('date', '')))
+            eq_df = eq_df.sort_values('date')
+            fig_eq = go.Figure()
+            fig_eq.add_trace(go.Scatter(
+                x=eq_df['date'], y=eq_df['total_equity'],
+                name='Portfolio', mode='lines+markers',
+                line=dict(color='#58a6ff', width=2),
+                marker=dict(size=4)
+            ))
+            initial_eq = config.get('portfolio', {}).get('initial_equity', 50_000_000)
+            fig_eq.add_hline(y=initial_eq, line_dash='dash', line_color='#8b949e',
+                           annotation_text=f'Initial: {format_rp(initial_eq)}')
+            fig_eq.update_layout(
+                template='plotly_dark', paper_bgcolor='rgba(0,0,0,0)',
+                plot_bgcolor='rgba(0,0,0,0)', height=300,
+                margin=dict(l=0, r=0, t=30, b=0),
+                title='Portfolio Equity Curve',
+                yaxis_title='Equity (Rp)'
+            )
+            st.plotly_chart(fig_eq, use_container_width=True, config={'displayModeBar': False})
+        else:
+            st.info("Equity curve data will appear after the first automated sweep cycle saves snapshots.")
+
+    # ── TAB 2: SECTOR HEATMAP ──
+    with tab_sector:
+        scan_data = st.session_state.scan_results
+        if scan_data:
+            sectors_map = config.get('sectors', {})
+            sector_scores = {}
+            for s in scan_data:
+                sec = sectors_map.get(s['symbol'], 'Other')
+                if sec not in sector_scores:
+                    sector_scores[sec] = []
+                sector_scores[sec].append(s['conviction'])
+            
+            hm_data = []
+            for sec, scores in sector_scores.items():
+                avg = sum(scores) / len(scores)
+                hm_data.append({"Sector": sec, "Avg Conviction": round(avg, 1), "Stocks": len(scores)})
+            
+            if hm_data:
+                import plotly.express as px
+                hm_df = pd.DataFrame(hm_data)
+                fig_hm = px.treemap(
+                    hm_df, path=['Sector'], values='Stocks',
+                    color='Avg Conviction', color_continuous_scale=['#F85149', '#D29922', '#3FB950'],
+                    range_color=[0, 10]
+                )
+                fig_hm.update_layout(
+                    template='plotly_dark', paper_bgcolor='rgba(0,0,0,0)',
+                    height=350, margin=dict(l=0, r=0, t=30, b=0)
+                )
+                fig_hm.update_traces(textinfo='label+value+text',
+                                    texttemplate='%{label}<br>Score: %{color:.1f}<br>(%{value} stocks)')
+                st.plotly_chart(fig_hm, use_container_width=True, config={'displayModeBar': False})
+            else:
+                st.info("No sector data available yet.")
+        else:
+            st.info("Run a scan cycle to populate the sector heatmap.")
+
+    # ── TAB 3: RISK DASHBOARD ──
+    with tab_risk:
+        col_heat, col_loss, col_dd = st.columns(3)
+        
+        # Portfolio Heat Gauge
+        with col_heat:
+            total_risk = 0.0
+            for sym, pos in broker.get_open_positions().items():
+                qty = pos.get('quantity', 0)
+                avg_p = pos.get('avg_price', 0)
+                sl = pos.get('stop_loss', avg_p * 0.95)
+                total_risk += qty * abs(avg_p - sl)
+            heat_pct = (total_risk / broker.get_balance() * 100) if broker.get_balance() > 0 else 0
+            max_heat = config.get('portfolio', {}).get('max_portfolio_heat_pct', 6.0)
+            heat_color = '#F85149' if heat_pct > max_heat else '#D29922' if heat_pct > max_heat * 0.7 else '#3FB950'
+            st.markdown(f"""
+            <div class="sovereign-card" style="text-align:center;">
+                <div class="metric-label">PORTFOLIO HEAT</div>
+                <div style="font-size:2rem; color:{heat_color}; font-weight:700;">{heat_pct:.1f}%</div>
+                <div style="font-size:0.65rem; color:#8b949e;">Limit: {max_heat}%</div>
+            </div>""", unsafe_allow_html=True)
+
+        # Daily Loss Meter
+        with col_loss:
+            daily_pnl = broker.get_daily_realized_pnl()
+            pnl_color = '#3FB950' if daily_pnl >= 0 else '#F85149'
+            st.markdown(f"""
+            <div class="sovereign-card" style="text-align:center;">
+                <div class="metric-label">DAILY P&L</div>
+                <div style="font-size:2rem; color:{pnl_color}; font-weight:700;">{format_rp(daily_pnl)}</div>
+                <div style="font-size:0.65rem; color:#8b949e;">Realized Today</div>
+            </div>""", unsafe_allow_html=True)
+
+        # Max Drawdown
+        with col_dd:
+            peak = getattr(broker, 'peak_equity', broker.initial_equity)
+            current = broker.get_balance()
+            dd_pct = ((peak - current) / peak * 100) if peak > 0 else 0
+            max_dd = config.get('portfolio', {}).get('max_drawdown_pct', 15.0)
+            dd_color = '#F85149' if dd_pct > max_dd * 0.7 else '#D29922' if dd_pct > max_dd * 0.3 else '#3FB950'
+            st.markdown(f"""
+            <div class="sovereign-card" style="text-align:center;">
+                <div class="metric-label">MAX DRAWDOWN</div>
+                <div style="font-size:2rem; color:{dd_color}; font-weight:700;">{dd_pct:.1f}%</div>
+                <div style="font-size:0.65rem; color:#8b949e;">Limit: {max_dd}% | Peak: {format_rp(peak)}</div>
+            </div>""", unsafe_allow_html=True)
+
+        # Scenario Analysis
+        st.markdown("#### ⚡ Scenario Analysis: IHSG Stress Test")
+        shock_val = st.slider("Simulated IHSG Shock (%)", min_value=-10.0, max_value=0.0, value=-3.0, step=0.5)
+        scenario = run_scenario_analysis(broker, config, ihsg_shock_pct=shock_val)
+        if scenario['per_position']:
+            sc_df = pd.DataFrame(scenario['per_position'])
+            st.dataframe(sc_df, use_container_width=True, hide_index=True)
+            loss_color = '#F85149' if scenario['pct_of_equity'] < -2 else '#D29922'
+            st.markdown(f"**Estimated Total Loss:** <span style='color:{loss_color}'>{format_rp(scenario['total_estimated_loss'])} ({scenario['pct_of_equity']:+.1f}% of equity)</span>", unsafe_allow_html=True)
+        else:
+            st.info("No open positions to stress test.")
+
+        # Kelly Criterion
+        st.markdown("#### 🎲 Kelly Criterion Suggestion")
+        kelly = calculate_kelly_suggestion(broker, 1000, 950, config)
+        st.markdown(f"""
+        <div class="sovereign-card" style="font-size:0.85rem;">
+            <strong>Status:</strong> {kelly['label']}<br>
+            <strong>Note:</strong> {kelly.get('note', 'N/A')}
+        </div>""", unsafe_allow_html=True)
+
+    # ── TAB 4: TRADE DNA ──
+    with tab_dna:
+        history = broker.get_trade_history()
+        sells = [t for t in history if t.get('action') == 'SELL']
+        if sells:
+            for trade in reversed(sells[-10:]):
+                pnl = trade.get('pnl', 0)
+                pnl_pct = trade.get('pnl_pct', 0)
+                pnl_color = '#3FB950' if pnl >= 0 else '#F85149'
+                pnl_icon = '✅' if pnl >= 0 else '❌'
+                st.markdown(f"""
+                <div class="sovereign-card" style="margin-bottom:8px; border-left:3px solid {pnl_color};">
+                    <div style="display:flex; justify-content:space-between; align-items:center;">
+                        <strong>{trade.get('symbol', 'N/A').split('.')[0]}</strong>
+                        <span style="color:{pnl_color}; font-weight:700;">{pnl_icon} {format_rp(pnl)} ({pnl_pct:+.1f}%)</span>
+                    </div>
+                    <div style="font-size:0.7rem; color:#8b949e; margin-top:4px;">
+                        📅 {trade.get('date', 'N/A')[:10]} | 💰 Price: {format_rp(trade.get('price', 0))} | 📦 Qty: {trade.get('quantity', 0)}
+                    </div>
+                    <div style="font-size:0.7rem; color:#8b949e;">
+                        📝 {trade.get('reason', 'No reason recorded')}
+                    </div>
+                </div>""", unsafe_allow_html=True)
+        else:
+            st.info("No closed trades yet. Trade DNA cards will appear after the first completed sell.")
+
+    # ── TAB 5: ALERT HISTORY ──
+    with tab_alerts:
+        if st.session_state.alert_history:
+            search = st.text_input("🔍 Filter alerts", placeholder="Type ticker or keyword...")
+            filtered = [a for a in st.session_state.alert_history if search.lower() in a.lower()] if search else st.session_state.alert_history
+            for alert in reversed(filtered[-20:]):
+                st.markdown(f"<div style='font-size:0.75rem; border-bottom:1px solid #21262d; padding:4px 0; font-family:monospace;'>{alert}</div>", unsafe_allow_html=True)
+        else:
+            st.info("Alert history will populate as the bot sends Telegram notifications during auto-pilot.")
 
 with main_right:
     # 1. POLITICAL RISK METER
@@ -298,22 +496,58 @@ with main_right:
     </div>
     """, unsafe_allow_html=True)
     
-    st.markdown(f"<h4 style='display:flex; align-items:center; gap:8px;'>{get_icon('layers')} DISCOVERY RADAR</h4>", unsafe_allow_html=True)
-    radar_html = "<div class='sovereign-card' style='height:400px; overflow-y:auto;'>"
+    # ── V15: LIVE CONVICTION LEADERBOARD ──
+    st.markdown(f"<h4 style='display:flex; align-items:center; gap:8px;'>{get_icon('layers')} CONVICTION LEADERBOARD</h4>", unsafe_allow_html=True)
+    radar_html = "<div class='sovereign-card' style='max-height:350px; overflow-y:auto;'>"
     if not st.session_state.scan_results:
         radar_html += "<span style='color:#8b949e;'>Awaiting sweep cycle...</span>"
     else:
-        for s in sorted(st.session_state.scan_results, key=lambda x: x['conviction'], reverse=True)[:10]:
-            radar_html += f"""<div style="border-bottom: 1px solid #30363d; padding:8px 0;">
-<div style="display:flex; justify-content:space-between;">
-<strong>{s['symbol'].split('.')[0]}</strong>
-<span class="glow-blue">{s['conviction']:.1f}</span>
+        for rank, s in enumerate(sorted(st.session_state.scan_results, key=lambda x: x['conviction'], reverse=True)[:10], 1):
+            conv = s['conviction']
+            conv_color = '#3FB950' if conv >= 7 else '#D29922' if conv >= 5 else '#8b949e'
+            phase = s.get('wyckoff_phase', 'N/A')
+            phase_short = phase[:15] + '...' if len(phase) > 15 else phase
+            # Badges
+            badges = ""
+            if s.get('is_squeeze'): badges += "<span style='background:#7C3AED; color:white; padding:0 4px; border-radius:3px; font-size:0.55rem; margin-left:3px;'>SQUEEZE</span>"
+            if s.get('accum_days', 0) >= 3: badges += "<span style='background:#2563EB; color:white; padding:0 4px; border-radius:3px; font-size:0.55rem; margin-left:3px;'>ACCUM</span>"
+            fp = s.get('inst_footprint', 0)
+            if fp >= 60: badges += f"<span style='background:#059669; color:white; padding:0 4px; border-radius:3px; font-size:0.55rem; margin-left:3px;'>FP:{fp}</span>"
+            radar_html += f"""<div style="border-bottom: 1px solid #30363d; padding:6px 0;">
+<div style="display:flex; justify-content:space-between; align-items:center;">
+<div><span style='color:#8b949e; font-size:0.7rem;'>#{rank}</span> <strong>{s['symbol'].split('.')[0]}</strong>{badges}</div>
+<span style="color:{conv_color}; font-weight:700;">{conv:.1f}</span>
 </div>
-<div style="font-size:0.7rem; color:#8b949e;">{s['wyckoff_phase']} | {s['bee_label']}</div>
+<div style="font-size:0.65rem; color:#8b949e;">{phase_short} | {s.get('bee_label', 'N/A')} | RS:{s.get('rs_vs_ihsg', 0):+.1f}%</div>
 </div>"""
 
     radar_html += "</div>"
     st.markdown(radar_html, unsafe_allow_html=True)
+
+    # ── PORTFOLIO HEATMAP (Open Positions) ──
+    open_pos = broker.get_open_positions()
+    if open_pos:
+        st.markdown(f"<h4 style='display:flex; align-items:center; gap:8px;'>{get_icon('shield')} PORTFOLIO HEATMAP</h4>", unsafe_allow_html=True)
+        pos_html = "<div class='sovereign-card'>"
+        for sym, pos in open_pos.items():
+            avg_p = pos.get('avg_price', 0)
+            # Try to get latest price from scan results
+            latest = next((s for s in st.session_state.scan_results if s['symbol'] == sym), None)
+            curr_price = latest['close'] if latest else avg_p
+            unrealized_pct = ((curr_price - avg_p) / avg_p * 100) if avg_p > 0 else 0
+            u_color = '#3FB950' if unrealized_pct >= 0 else '#F85149'
+            bar_width = min(100, abs(unrealized_pct) * 10)
+            pos_html += f"""<div style="margin-bottom:6px;">
+<div style="display:flex; justify-content:space-between; font-size:0.8rem;">
+<strong>{sym.split('.')[0]}</strong>
+<span style="color:{u_color}; font-weight:600;">{unrealized_pct:+.1f}%</span>
+</div>
+<div style="background:#21262d; border-radius:3px; height:6px; width:100%;">
+<div style="background:{u_color}; border-radius:3px; height:6px; width:{bar_width}%;"></div>
+</div>
+</div>"""
+        pos_html += "</div>"
+        st.markdown(pos_html, unsafe_allow_html=True)
 
     # 3. SOVEREIGN INTELLIGENCE NARRATIVE
     st.markdown(f"<h4 style='display:flex; align-items:center; gap:8px;'>{get_icon('shield')} SOVEREIGN INTELLIGENCE</h4>", unsafe_allow_html=True)
