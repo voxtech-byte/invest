@@ -9,15 +9,17 @@ from logger import get_logger
 
 # ── Sovereign Modules ──────────────────────────────────────
 from core.utils import load_config, TIMEZONE, format_rp
-from core.indicators import calculate_indicators
+from core.indicators import calculate_indicators, enrich_relative_strength
 from core.signals import evaluate_signals, evaluate_exit_conditions
 from core.executive import (
     calculate_position_size, check_safety_gates,
     check_sector_exposure, check_liquidity,
-    check_portfolio_heat, check_correlation
+    check_portfolio_heat, check_correlation,
+    adjust_size_for_correlation
 )
 from core.dark_pool import detect_hidden_flows
 from core.black_swan import detect_black_swan_event
+from data.data_fetcher import fetch_data, fetch_ihsg
 from data.database import DatabaseManager
 from integrations.alerts import format_alert, format_status_report, send_telegram
 from google_sheets_logger import GoogleSheetsLogger
@@ -28,7 +30,18 @@ logger = get_logger(__name__)
 async def main():
     logger.info("🏛️ SOVEREIGN QUANT TERMINAL V14: ENGINE INITIALIZED")
     config = load_config()
+    
+    # ── Market Hours Gate ──
+    from core.utils import is_market_open
+    force_run = os.getenv("FORCE_RUN_OUT_OF_HOURS", "false").lower() == "true"
+    
+    if not is_market_open() and not force_run:
+        logger.warning("🕒 MARKET CLOSED: Skipping sweep cycle to protect liquidity/execution accuracy.")
+        logger.info("Use FORCE_RUN_OUT_OF_HOURS=true to override.")
+        return
+
     db = DatabaseManager()
+
     exec_cfg = config.get('execution', {})
 
     # Initialize Google Sheets Sync
@@ -132,28 +145,42 @@ async def main():
             continue
 
     # ═══════════════════════════════════════════════════════════
-    # PHASE 1: TARGET SCANNING & EXECUTION
+    # PHASE 1: DATA GATHERING & SECTOR ANALYSIS
     # ═══════════════════════════════════════════════════════════
-    logger.info("📡 Phase 1: Scanning watchlist for entry signals...")
-    all_status = []
+    logger.info("📡 Phase 1: Data gathering & Sector analysis...")
     all_dfs = {}
     for symbol in stocks:
         try:
-            logger.info(f"Analyzing {symbol}...")
             df = fetch_data(symbol, config)
+            if df is not None and len(df) >= 60:
+                all_dfs[symbol] = calculate_indicators(df, config)
+        except Exception as e:
+            logger.error(f"[{symbol}] Data fetch error: {e}")
 
-            if df is None or df.empty:
-                logger.warning(f"[{symbol}] No data available — skipping")
-                continue
+    sector_rotation = analyze_sector_rotation(all_dfs, config)
 
-            # ── Data Quality Check: Minimum 60 rows ──
-            if len(df) < 60:
-                logger.warning(f"[{symbol}] Insufficient data ({len(df)} rows < 60 minimum)")
-                continue
-
-            df = calculate_indicators(df, config)
-            all_dfs[symbol] = df
+    # ── V15: Enrich Relative Strength vs IHSG ──
+    try:
+        import yfinance as yf
+        ihsg_symbol = config.get('macro', {}).get('index_symbol', '^JKSE')
+        ihsg_raw_df = yf.Ticker(ihsg_symbol).history(period="1y")
+        if ihsg_raw_df is not None and not ihsg_raw_df.empty:
+            for symbol in all_dfs:
+                all_dfs[symbol] = enrich_relative_strength(all_dfs[symbol], ihsg_raw_df)
+            logger.info(f"📊 V15: Relative Strength vs IHSG enriched for {len(all_dfs)} stocks")
+    except Exception as e:
+        logger.warning(f"RS vs IHSG enrichment skipped: {e}")
+    
+    # ═══════════════════════════════════════════════════════════
+    # PHASE 2: TARGET SCANNING & EXECUTION
+    # ═══════════════════════════════════════════════════════════
+    logger.info("📡 Phase 2: Scanning watchlist for entry signals...")
+    all_status = []
+    for symbol, df in all_dfs.items():
+        try:
+            logger.info(f"Analyzing {symbol}...")
             last_row = df.iloc[-1]
+            current_pos = broker.get_open_positions().get(symbol)
 
             # ── Liquidity Filter ──
             is_liquid, liq_reason = check_liquidity(last_row, config)
@@ -172,7 +199,8 @@ async def main():
             signal, summary, reason = evaluate_signals(
                 symbol, df, config,
                 ihsg_data=ihsg_data,
-                open_position=current_pos
+                open_position=current_pos,
+                sector_rotation=sector_rotation
             )
 
             if summary:
@@ -199,6 +227,20 @@ async def main():
                                 logger.info(f"🌡️ {symbol} BLOCKED: {heat_msg}")
                                 continue
 
+                            # ── REENTRY COOLDOWN CHECK (3 Days) ──
+                            from datetime import timedelta
+                            cooldown_days = 3
+                            last_sell = next((t for t in reversed(broker.get_trade_history()) 
+                                            if t['symbol'] == symbol and t['action'] == 'SELL'), None)
+                            if last_sell:
+                                try:
+                                    last_exit_date = datetime.fromisoformat(last_sell['date'])
+                                    if datetime.now(TIMEZONE) - last_exit_date < timedelta(days=cooldown_days):
+                                        logger.info(f"⏳ {symbol} SKIPPED: Reentry cooldown ({cooldown_days} days)")
+                                        continue
+                                except Exception as e:
+                                    logger.warning(f"Cooldown parse error for {symbol}: {e}")
+
                             # ── Correlation Check ──
                             corr_warnings = check_correlation(
                                 symbol, df, broker.get_open_positions(), config,
@@ -208,10 +250,19 @@ async def main():
                                 logger.info(f"🔗 {symbol} CORRELATION WARNING: {corr_warnings[0]}")
                                 # Don't block, but log warning
 
+                            # ── V15: Correlation-Adjusted Sizing ──
+                            lot = adjust_size_for_correlation(
+                                symbol, lot, df, broker.get_open_positions(),
+                                config, fetch_data_fn=fetch_data
+                            )
+                            if lot <= 0:
+                                logger.info(f"[{symbol}] Lot reduced to 0 by correlation adjustment")
+                                continue
+
                             logger.info(f"🚀 AUTO-BUY: {symbol} ({lot} shares, Risk: {risk_tier}%, Heat: {heat_pct:.1f}%)")
                             success_buy, res = broker.execute_buy(
                                 symbol, summary['close'], lot,
-                                reason=f"GHA-Auto S:{summary['conviction']:.1f} W:{summary.get('weekly_trend', 'N/A')}"
+                                reason=f"GHA-Auto S:{summary['conviction']:.1f} W:{summary.get('weekly_trend', 'N/A')} FP:{summary.get('inst_footprint', 0)}"
                             )
                             if success_buy:
                                 sheet_logger.log_trade(
@@ -243,9 +294,6 @@ async def main():
 
     # Save results to DB
     db.save_scan_results(all_status)
-    
-    # Analyze Sector Rotation
-    sector_rotation = analyze_sector_rotation(all_dfs, config)
     logger.info(f"✅ Sweep complete. {len(all_status)} stocks analyzed. Data synced.")
     
     # Send Status Report

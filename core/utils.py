@@ -6,6 +6,43 @@ import pytz
 
 TIMEZONE = pytz.timezone('Asia/Jakarta')
 
+def is_market_open() -> bool:
+    """
+    Check if the IDX (Jakarta) market is currently open.
+    Reflects standard IDX trading hours (Mon-Fri) with lunch breaks.
+    """
+    now = datetime.now(TIMEZONE)
+    # 0 = Monday, 4 = Friday, 5 = Saturday, 6 = Sunday
+    if now.weekday() >= 5:
+        return False
+        
+    current_time = now.time()
+    
+    # Session 1: 09:00 - 12:00 (Fri 11:30)
+    # Session 2: 13:30 - 15:50
+    
+    s1_start = datetime.strptime("09:00", "%H:%M").time()
+    s1_end_fri = datetime.strptime("11:30", "%H:%M").time()
+    s1_end_norm = datetime.strptime("12:00", "%H:%M").time()
+    
+    s2_start = datetime.strptime("13:30", "%H:%M").time()
+    s2_end = datetime.strptime("15:50", "%H:%M").time()
+    
+    # Session 2 is same for all days
+    if s2_start <= current_time <= s2_end:
+        return True
+        
+    # Session 1
+    if now.weekday() == 4: # Friday
+        if s1_start <= current_time <= s1_end_fri:
+            return True
+    else: # Mon-Thu
+        if s1_start <= current_time <= s1_end_norm:
+            return True
+            
+    return False
+
+
 def load_config() -> dict[str, Any]:
     with open("config.json", "r") as f:
         config = json.load(f)

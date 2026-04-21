@@ -333,3 +333,228 @@ def check_liquidity(last_row: dict, config: dict) -> tuple[bool, str]:
         return False, f"Liquidity below threshold: Rp {avg_daily_value:,.0f} < Rp {min_avg_value:,.0f}"
 
     return True, "OK"
+
+
+# ══════════════════════════════════════════════════════════════
+# KELLY CRITERION SUGGESTION (Advisory Only)
+# ══════════════════════════════════════════════════════════════
+
+def calculate_kelly_suggestion(
+    broker,
+    price: float,
+    stop_loss: float,
+    config: dict
+) -> dict:
+    """
+    Calculate the Kelly Criterion optimal position size as a SUGGESTION.
+    Uses historical win rate and average reward-to-risk ratio.
+
+    Formula: Kelly% = W - (1-W)/R
+    Where:
+        W = historical win rate (0-1)
+        R = avg win / avg loss ratio
+
+    Returns:
+        dict with 'kelly_fraction', 'kelly_lot', 'label'
+    """
+    portfolio = config.get('portfolio', {})
+    initial_equity = portfolio.get('initial_equity', 50_000_000)
+
+    trade_history = broker.get_trade_history()
+
+    # Need at least 10 trades for statistical significance
+    if len(trade_history) < 10:
+        return {
+            "kelly_fraction": 0.0,
+            "kelly_lot": 0,
+            "label": "INSUFFICIENT DATA (min 10 trades)",
+            "note": f"Current: {len(trade_history)} trades"
+        }
+
+    # Calculate win rate and average R:R
+    wins = [t for t in trade_history if t.get('pnl', 0) > 0]
+    losses = [t for t in trade_history if t.get('pnl', 0) < 0]
+
+    if not wins or not losses:
+        return {
+            "kelly_fraction": 0.0,
+            "kelly_lot": 0,
+            "label": "NO LOSS/WIN DATA",
+            "note": "Cannot compute R:R without both wins and losses"
+        }
+
+    win_rate = len(wins) / len(trade_history)
+    avg_win = sum(t['pnl'] for t in wins) / len(wins)
+    avg_loss = abs(sum(t['pnl'] for t in losses) / len(losses))
+
+    if avg_loss <= 0:
+        return {"kelly_fraction": 0.0, "kelly_lot": 0, "label": "ZERO AVG LOSS"}
+
+    reward_risk = avg_win / avg_loss
+
+    # Kelly Formula
+    kelly_raw = win_rate - ((1 - win_rate) / reward_risk)
+
+    # Apply "Half-Kelly" for safety (standard institutional practice)
+    kelly_fraction = max(0.0, kelly_raw * 0.5)
+
+    # Convert to lot size
+    risk_per_share = abs(price - stop_loss) if abs(price - stop_loss) > 0 else price * 0.05
+    kelly_risk_amount = initial_equity * kelly_fraction
+    kelly_shares = int(kelly_risk_amount / risk_per_share)
+    kelly_lot = (kelly_shares // 100) * 100
+
+    # Cap at max single-trade equity
+    safety = config.get('safety', {})
+    max_single_pct = safety.get('max_single_trade_equity_pct', 20)
+    max_lot = int((initial_equity * max_single_pct / 100) / price)
+    max_lot = (max_lot // 100) * 100
+    kelly_lot = min(kelly_lot, max_lot)
+
+    label = (
+        "AGGRESSIVE" if kelly_fraction > 0.15 else
+        "MODERATE" if kelly_fraction > 0.05 else
+        "CONSERVATIVE"
+    )
+
+    return {
+        "kelly_fraction": round(kelly_fraction * 100, 2),
+        "kelly_lot": kelly_lot,
+        "label": label,
+        "win_rate": round(win_rate * 100, 1),
+        "reward_risk": round(reward_risk, 2),
+        "kelly_raw": round(kelly_raw * 100, 2),
+        "note": f"Half-Kelly applied. Raw={kelly_raw*100:.1f}%, WR={win_rate*100:.0f}%, R:R={reward_risk:.1f}x"
+    }
+
+
+# ══════════════════════════════════════════════════════════════
+# PORTFOLIO SCENARIO ANALYSIS (Stress Test)
+# ══════════════════════════════════════════════════════════════
+
+def run_scenario_analysis(
+    broker,
+    config: dict,
+    ihsg_shock_pct: float = -3.0
+) -> dict:
+    """
+    Simulate the portfolio impact of an IHSG shock.
+    Uses each stock's beta (approximated from correlation) to estimate loss.
+
+    Args:
+        broker: MockBroker with open positions.
+        ihsg_shock_pct: Simulated IHSG % change (default -3%).
+
+    Returns:
+        dict with 'total_estimated_loss', 'pct_of_equity', 'per_position' details.
+    """
+    positions = broker.get_open_positions()
+    equity = broker.get_balance()
+
+    if not positions:
+        return {
+            "total_estimated_loss": 0,
+            "pct_of_equity": 0.0,
+            "per_position": [],
+            "scenario": f"IHSG {ihsg_shock_pct:+.1f}%"
+        }
+
+    total_loss = 0.0
+    per_pos = []
+
+    for sym, pos in positions.items():
+        qty = pos.get('quantity', 0)
+        avg_price = pos.get('avg_price', 0)
+        position_value = qty * avg_price
+
+        # Use beta approximation.
+        # Most IDX blue chips have beta 0.8-1.3 vs IHSG.
+        # Default to 1.0 (market-neutral assumption).
+        beta = pos.get('beta', 1.0)
+
+        estimated_stock_move_pct = ihsg_shock_pct * beta
+        estimated_loss = position_value * (estimated_stock_move_pct / 100)
+
+        total_loss += estimated_loss
+        per_pos.append({
+            "symbol": sym,
+            "position_value": round(position_value, 0),
+            "beta": beta,
+            "est_move_pct": round(estimated_stock_move_pct, 2),
+            "est_loss": round(estimated_loss, 0)
+        })
+
+    pct_of_equity = (total_loss / equity * 100) if equity > 0 else 0.0
+
+    return {
+        "total_estimated_loss": round(total_loss, 0),
+        "pct_of_equity": round(pct_of_equity, 2),
+        "per_position": per_pos,
+        "scenario": f"IHSG {ihsg_shock_pct:+.1f}%"
+    }
+
+
+# ══════════════════════════════════════════════════════════════
+# CORRELATION-ADJUSTED POSITION SIZING
+# ══════════════════════════════════════════════════════════════
+
+def adjust_size_for_correlation(
+    symbol: str,
+    base_lot: int,
+    df_new: pd.DataFrame,
+    open_positions: dict,
+    config: dict,
+    fetch_data_fn=None
+) -> int:
+    """
+    Reduce position size if the new stock is highly correlated
+    with existing holdings. Overlapping risk = reduced size.
+
+    Returns:
+        Adjusted lot size (may be lower than base_lot).
+    """
+    portfolio = config.get('portfolio', {})
+    max_corr = portfolio.get('max_correlation_threshold', 0.75)
+    lookback = portfolio.get('correlation_lookback_days', 30)
+
+    if not open_positions or fetch_data_fn is None or len(df_new) < lookback:
+        return base_lot
+
+    new_returns = df_new['Close'].pct_change().tail(lookback).dropna()
+    if len(new_returns) < 15:
+        return base_lot
+
+    max_corr_found = 0.0
+    for existing_sym in open_positions:
+        if existing_sym == symbol:
+            continue
+        try:
+            df_existing = fetch_data_fn(existing_sym, config)
+            if df_existing is None or len(df_existing) < lookback:
+                continue
+            existing_returns = df_existing['Close'].pct_change().tail(lookback).dropna()
+            if len(existing_returns) < 15:
+                continue
+            aligned = pd.concat([new_returns, existing_returns], axis=1, join='inner')
+            if len(aligned) < 15:
+                continue
+            corr = aligned.iloc[:, 0].corr(aligned.iloc[:, 1])
+            if not np.isnan(corr):
+                max_corr_found = max(max_corr_found, abs(corr))
+        except Exception:
+            continue
+
+    # If max correlation > 0.8, reduce by 30%. If > 0.9, reduce by 50%.
+    if max_corr_found > 0.9:
+        adjusted = int(base_lot * 0.5)
+        logger.info(f"[{symbol}] Correlation-adjusted sizing: {base_lot} → {adjusted} (corr={max_corr_found:.2f})")
+    elif max_corr_found > 0.8:
+        adjusted = int(base_lot * 0.7)
+        logger.info(f"[{symbol}] Correlation-adjusted sizing: {base_lot} → {adjusted} (corr={max_corr_found:.2f})")
+    else:
+        return base_lot
+
+    # Round to nearest 100 lot
+    adjusted = (adjusted // 100) * 100
+    return max(0, adjusted)
+

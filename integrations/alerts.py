@@ -53,9 +53,50 @@ def format_alert(signal_data: dict, extra: dict = None) -> str:
         vwap_status = "Above ✅" if s['close'] > s['vwap'] else "Below ⚠️"
         msg += f"📐 VWAP: `{format_rp(s['vwap'])}` ({vwap_status})\n"
 
+    # ── Monte Carlo Stress Test ──
+    if s.get('mc_risk_rating'):
+        risk_color = "🔴" if s['mc_risk_rating'] == "HIGH" else "🟡" if s['mc_risk_rating'] == "MODERATE" else "🟢"
+        msg += f"\n📊 *Monte Carlo (10D Out-look):*\n"
+        msg += f"🎲 Prob. Profit: `{s.get('mc_prob_profit', 0):.1f}%`\n"
+        msg += f"📉 VaR 95: `{s.get('mc_var_pct', 0):+.1f}%`\n"
+        msg += f"🛡️ Risk Rating: {risk_color} `{s['mc_risk_rating']}`\n"
+
+    # ── V15: Institutional Intelligence ──
+    inst_fp = s.get('inst_footprint', 0)
+    if inst_fp > 0:
+        fp_emoji = "🏛️" if inst_fp >= 75 else "🏢" if inst_fp >= 50 else "🏠"
+        msg += f"\n{fp_emoji} *Institutional Footprint:* `{inst_fp}/100` ({s.get('inst_label', 'N/A')})\n"
+
+        # SMI
+        smi = s.get('smi_10', 0)
+        if abs(smi) > 0.01:
+            smi_icon = "🟢" if smi > 0.2 else "🟡" if smi > 0 else "🔴"
+            msg += f"   {smi_icon} SMI (10d): `{smi:+.3f}`\n"
+
+        # Accumulation
+        accum = s.get('accum_days', 0)
+        if accum >= 2:
+            msg += f"   📦 Accum Days: `{accum}d` streak\n"
+
+        # Squeeze
+        if s.get('is_squeeze'):
+            msg += f"   💥 SQUEEZE ACTIVE: `{s.get('squeeze_days', 0)}d` compression\n"
+
+        # RS vs IHSG
+        rs = s.get('rs_vs_ihsg', 0)
+        if abs(rs) > 1.0:
+            rs_icon = "💪" if rs > 0 else "📉"
+            msg += f"   {rs_icon} RS vs IHSG: `{rs:+.1f}%`\n"
+
+        # Spread Warning
+        if s.get('spread_flag'):
+            msg += f"   ⚠️ Wide Spread: `{s.get('spread_proxy', 0):.3f}` (Illiquid)\n"
+
     # ── Exit reason (for sells) ──
     if signal_data.get('exit_reason'):
         msg += f"\n⚡ *Reason:* {signal_data['exit_reason']}\n"
+
+
 
     # ── Extra context ──
     if extra:

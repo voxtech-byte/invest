@@ -2,6 +2,10 @@
 
 Sovereign is an institutional-grade, automated quantitative trading engine and dashboard built for high-conviction trading in the **Indonesia Stock Exchange (IDX)**. It is the evolution of the Quant Alpha series, moving from simple notifications to a modular, asymmetric command center.
 
+> [!IMPORTANT]
+> **Complete Technical Documentation**: For a deep dive into the architecture, engines, and setup, see [README_V14_PRO.md](file:///Users/muhammadnizaralfaris/Documents/saham/README_V14_PRO.md).
+
+
 ## 🏛️ Project Architecture
 The system has been transformed into a professional **Modular Architecture**:
 - `core/`: Advanced quantitative logic (Signals, Risk, Anomaly Detection).

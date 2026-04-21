@@ -107,12 +107,31 @@ def compile_institutional_data(selected_tickers, config, ihsg_data=None):
                 # Ambil data tambahan dari indikator teknikal baris terakhir
                 last_row = df.iloc[-1]
                 summary['rsi'] = last_row.get(f"RSI_{config['indicators']['rsi_length']}", 0)
+                summary['sma_50'] = last_row.get('SMA_50', 0)
                 summary['sma_200'] = last_row.get(f"SMA_{config['indicators']['ma_long']}", 0)
                 summary['adx'] = last_row.get('ADX_14', 0)
                 summary['volume_ratio'] = last_row['Volume'] / last_row['Vol_Avg'] if last_row.get('Vol_Avg', 0) > 0 else 1.0
+                summary['mc_prob_profit'] = summary.get('mc_prob_profit', 0)
+                summary['mc_risk'] = summary.get('mc_risk_rating', 'N/A')
                 summary['status_reason'] = reason
                 
-                summary_list.append(summary)
+                # Cleanup keys for institutional CSV look
+                clean_row = {
+                    "Ticker": summary['symbol'],
+                    "Price": summary['close'],
+                    "Conviction": summary['conviction'],
+                    "Phase": summary['wyckoff_phase'],
+                    "Target_1": summary['target_1'],
+                    "Stop_Loss": summary['stop_loss'],
+                    "Weekly_Trend": summary.get('weekly_trend'),
+                    "BEE_SmartMoney": summary['bee_label'],
+                    "RSI": round(summary['rsi'], 1),
+                    "Vol_Ratio": round(summary['volume_ratio'], 2),
+                    "MC_Profit_Prob": f"{summary['mc_prob_profit']}%",
+                    "MC_Risk": summary['mc_risk'],
+                    "Market_Reason": summary['status_reason']
+                }
+                summary_list.append(clean_row)
                 
         progress_bar.progress((i + 1) / len(selected_tickers))
     
@@ -134,11 +153,19 @@ with col_brand:
 
 with col_ihsg:
     ihsg = get_cached_ihsg(config)  # Cached to prevent yfinance rate limiting
+    from core.utils import is_market_open
+    market_open = is_market_open()
+    m_color = "#3FB950" if market_open else "#8b949e"
+    m_label = "ACTIVE" if market_open else "CLOSED"
+    
     if ihsg:
         c_class = "glow-green" if ihsg['percent'] >= 0 else "glow-red"
         st.markdown(f"""
         <div class="sovereign-card">
-            <div class="metric-label">IHSG REGIME ({ihsg['symbol']})</div>
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+                <div class="metric-label">IHSG REGIME ({ihsg['symbol']})</div>
+                <div style="font-size:0.6rem; color:{m_color}; border:1px solid {m_color}; padding:1px 4px; border-radius:3px;">{m_label}</div>
+            </div>
             <div class="metric-value">{format_rp(ihsg['last_close'])} <span class="{c_class}" style="font-size:0.9rem;">({ihsg['percent']:+.2f}%)</span></div>
         </div>
         """, unsafe_allow_html=True)
@@ -429,11 +456,26 @@ if st.session_state.auto_pilot:
                                 ihsg_data=ihsg
                             )
                             if lot > 0:
-                                log_to_terminal(f"🚀 AUTO-BUY: {symbol} ({lot} shares, Risk: {risk_tier}%)", is_critical=True)
-                                success, res = broker.execute_buy(symbol, summary['close'], lot, reason=f"Terminal-Live S:{summary['conviction']:.1f}")
-                                if success:
-                                    sheet_logger.log_trade(symbol, "BUY", summary['close'], lot, conviction=summary['conviction'], reason="Sovereign Terminal Auto-Buy")
-                                    st.balloons()
+                                from datetime import timedelta
+                                last_sell = next((t for t in reversed(broker.get_trade_history()) 
+                                                if t['symbol'] == symbol and t['action'] == 'SELL'), None)
+                                in_cooldown = False
+                                if last_sell:
+                                    try:
+                                        last_exit_date = datetime.fromisoformat(last_sell['date'])
+                                        if datetime.now(TIMEZONE) - last_exit_date < timedelta(days=3):
+                                            in_cooldown = True
+                                    except: pass
+
+                                if in_cooldown:
+                                    log_to_terminal(f"⏳ {symbol} SKIPPED: Cooldown active")
+                                else:
+                                    log_to_terminal(f"🚀 AUTO-BUY: {symbol} ({lot} shares, Risk: {risk_tier}%)", is_critical=True)
+                                    success, res = broker.execute_buy(symbol, summary['close'], lot, reason=f"Terminal-Live S:{summary['conviction']:.1f}")
+                                    if success:
+                                        sheet_logger.log_trade(symbol, "BUY", summary['close'], lot, conviction=summary['conviction'], reason="Sovereign Terminal Auto-Buy")
+                                        st.balloons()
+
                         else:
                             warn_msg = safety_warnings[0] if safety_warnings else (sector_warn[0] if sector_warn else 'Unknown')
                             log_to_terminal(f"⚠️ SIGNAL IGNORED: {warn_msg}")

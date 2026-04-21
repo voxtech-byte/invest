@@ -5,6 +5,8 @@ from typing import Any, Dict, Optional
 from logger import get_logger
 from core.utils import TIMEZONE
 from core.monte_carlo import run_monte_carlo
+from core.institutional import calculate_institutional_footprint, calculate_volume_weighted_conviction
+from core.dark_pool import detect_hidden_flows
 
 logger = get_logger(__name__)
 
@@ -235,10 +237,12 @@ def evaluate_exit_conditions(
         return "AUTO_TRADE_SELL", f"Stop Loss{trail_label} Breach ({close:.0f} <= {stop_loss:.0f})"
 
     # ══ EXIT 2: Momentum Exit — RSI overbought + volume spike ══
-    momentum_rsi = exec_cfg.get('momentum_exit_rsi', 78)
+    # Thresholds: RSI > 75 and Vol > 2.0x (Distribution)
+    momentum_rsi = exec_cfg.get('momentum_exit_rsi', 75)
     momentum_vol = exec_cfg.get('momentum_exit_vol_ratio', 2.0)
     if rsi > momentum_rsi and vol_ratio > momentum_vol:
-        return "AUTO_TRADE_SELL", f"Momentum Distribution (RSI={rsi:.0f}, Vol={vol_ratio:.1f}x)"
+        return "AUTO_TRADE_SELL", f"Momentum Distribution (RSI={rsi:.1f}, Vol={vol_ratio:.1f}x)"
+
 
     # ══ EXIT 3: Close < SMA50 after holding > 3 days ══
     if sma50 > 0 and close < sma50 and holding_days >= 3:
@@ -287,7 +291,8 @@ def evaluate_signals(
     df: pd.DataFrame,
     config: dict,
     ihsg_data: dict = None,
-    open_position: dict = None
+    open_position: dict = None,
+    sector_rotation: list = None
 ):
     """
     Weighted Conviction Scoring Engine V14 Phase 2.
@@ -324,12 +329,56 @@ def evaluate_signals(
     if vwap > 0 and close > vwap:
         final_conviction += 0.3
 
+    # ── Sector Rotation Bonus ──
+    if sector_rotation:
+        sectors = config.get('sectors', {})
+        my_sector = sectors.get(symbol)
+        # Check if my sector is 'HOT'
+        if my_sector:
+            is_hot = any(s['sector'] == my_sector and s['rating'] == 'HOT' for s in sector_rotation)
+            if is_hot:
+                final_conviction += 0.5
+                logger.debug(f"[{symbol}] Sector Rotation Bonus (+0.5) applied for {my_sector}")
+
     # ── Multi-Timeframe Confirmation ──
     weekly_trend = get_weekly_trend(df)
 
     # ── Wyckoff Phase + Conviction Modifier ──
     wyckoff_phase, wyckoff_meta = detect_wyckoff_phase(df)
     final_conviction += wyckoff_meta.get('conviction_modifier', 0.0)
+
+    # ── V15: Institutional Behavior Modifiers ──
+    dark_pool_result = detect_hidden_flows(df, config)
+    inst_footprint = calculate_institutional_footprint(
+        df, dark_pool_score=dark_pool_result.get('score', 0.0), config=config
+    )
+    vw_conviction_mod = calculate_volume_weighted_conviction(df)
+    final_conviction += vw_conviction_mod
+
+    # Institutional Footprint bonus: score >= 60 → +0.3, >= 80 → +0.5
+    fp_score = inst_footprint.get('footprint_score', 0)
+    if fp_score >= 80:
+        final_conviction += 0.5
+    elif fp_score >= 60:
+        final_conviction += 0.3
+
+    # ── V15: Squeeze + Accumulation Bonus ──
+    is_squeeze = bool(last.get('Is_Squeeze', False))
+    accum_days = last.get('Accum_Days', 0)
+    if is_squeeze and accum_days >= 3:
+        final_conviction += 0.4  # Compression + hidden accumulation = explosive potential
+        logger.debug(f"[{symbol}] Squeeze+Accum bonus (+0.4): Squeeze={is_squeeze}, Accum={accum_days}d")
+
+    # ── V15: Relative Strength vs IHSG Bonus ──
+    rs_vs_ihsg = last.get('RS_vs_IHSG', 0.0)
+    if rs_vs_ihsg > 5.0:  # Outperforming IHSG by 5%+ over 20d
+        final_conviction += 0.3
+        logger.debug(f"[{symbol}] RS vs IHSG bonus (+0.3): Alpha={rs_vs_ihsg:.1f}%")
+
+    # ── V15: Spread Liquidity Warning (penalty) ──
+    if bool(last.get('Spread_Flag', False)):
+        final_conviction -= 0.3
+        logger.debug(f"[{symbol}] Wide spread penalty (-0.3): Spread={last.get('Spread_Proxy', 0):.3f}")
 
     # Clamp conviction to 0-10 range
     final_conviction = max(0.0, min(10.0, final_conviction))
@@ -376,7 +425,19 @@ def evaluate_signals(
         'weekly_trend': weekly_trend,
         'vwap': vwap,
         'mc_risk_rating': mc_data.get('risk_rating'),
-        'mc_prob_profit': mc_data.get('prob_profit')
+        'mc_prob_profit': mc_data.get('prob_profit'),
+        'mc_var_pct': mc_data.get('var_pct'),
+        # V15 Alpha Fields
+        'smi_10': round(float(last.get('SMI_10', 0)), 3),
+        'accum_days': int(accum_days),
+        'is_squeeze': is_squeeze,
+        'squeeze_days': int(last.get('Squeeze_Days', 0)),
+        'rs_vs_ihsg': round(float(rs_vs_ihsg), 2),
+        'spread_proxy': round(float(last.get('Spread_Proxy', 0)), 4),
+        'spread_flag': bool(last.get('Spread_Flag', False)),
+        'inst_footprint': fp_score,
+        'inst_label': inst_footprint.get('label', 'N/A'),
+        'vw_conviction_mod': vw_conviction_mod
     }
 
     # ══════════════════════════════════════════════════════════
