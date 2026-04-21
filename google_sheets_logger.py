@@ -1,7 +1,7 @@
 import os
 import json
 from datetime import datetime
-from typing import Any
+from typing import Any, Optional
 
 import pytz
 import gspread
@@ -14,7 +14,7 @@ logger = get_logger(__name__)
 CSV_FALLBACK_FILE = "trade_history.csv"
 
 class GoogleSheetsLogger:
-    def __init__(self, sheet_id: str | None = None, credentials_file: str = "service_account.json") -> None:
+    def __init__(self, sheet_id: Optional[str] = None, credentials_file: str = "service_account.json") -> None:
         self.sheet_id = sheet_id
         self.credentials_file = credentials_file
         self.is_configured = False

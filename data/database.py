@@ -1,7 +1,7 @@
 import os
 import json
 from datetime import datetime
-from typing import Any, List, Dict
+from typing import Any, List, Dict, Optional
 from supabase import create_client, Client
 from logger import get_logger
 
@@ -15,7 +15,7 @@ class DatabaseManager:
     def __init__(self):
         self.url = os.getenv("SUPABASE_URL")
         self.key = os.getenv("SUPABASE_KEY")
-        self.client: Client | None = None
+        self.client: Optional[Client] = None
         self.use_cloud = False
         
         if self.url and self.key and "YOUR_SUPABASE" not in self.url:
@@ -204,3 +204,41 @@ class DatabaseManager:
             logger.error(f"Local equity read error: {e}")
 
         return snapshots
+
+    # ── FEEDBACK & HEARTBEAT ───────────────────────────────────
+
+    def save_feedback(self, data: Dict[str, Any]):
+        if self.use_cloud:
+            try:
+                self.client.table("feedback").insert(data).execute()
+            except Exception as e:
+                logger.error(f"Supabase feedback save error: {e}")
+        
+        try:
+            with open("feedback_log.json", "a") as f:
+                f.write(json.dumps(data) + "\n")
+        except Exception as e:
+            logger.error(f"Local feedback log error: {e}")
+
+    def get_feedback_summary(self) -> Dict[str, Any]:
+        """Returns aggregated feedback metrics."""
+        summary = {"count": 0, "nps": 0.0, "recent": []}
+        if self.use_cloud:
+            try:
+                res = self.client.table("feedback").select("*").order("created_at", desc=True).limit(50).execute()
+                data = res.data
+                if data:
+                    summary["count"] = len(data)
+                    scores = [d["nps_score"] for d in data]
+                    summary["nps"] = sum(scores) / len(scores) if scores else 0.0
+                    summary["recent"] = data[:5]
+            except Exception as e:
+                logger.error(f"Supabase feedback fetch error: {e}")
+        return summary
+
+    def save_heartbeat(self, status_data: Dict[str, Any]):
+        if self.use_cloud:
+            try:
+                self.client.table("heartbeat_logs").insert(status_data).execute()
+            except Exception as e:
+                logger.error(f"Supabase heartbeat save error: {e}")

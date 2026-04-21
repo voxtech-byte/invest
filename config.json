@@ -12,8 +12,8 @@
     "BBCA.JK": "Finance", "BBRI.JK": "Finance", "BMRI.JK": "Finance", "BBNI.JK": "Finance", "BRIS.JK": "Finance", "BBTN.JK": "Finance",
     "GOTO.JK": "Technology", "BUKA.JK": "Technology", "EMTK.JK": "Technology",
     "ADRO.JK": "Energy", "PTBA.JK": "Energy", "ITMG.JK": "Energy", "MEDC.JK": "Energy", "HRUM.JK": "Energy", "PGAS.JK": "Energy", "PGEO.JK": "Energy", "AKRA.JK": "Energy", "ESSA.JK": "Energy",
-    "ANTM.JK": "Mining", "INCO.JK": "Mining", "MDKA.JK": "Mining", "BRMS.JK": "Mining",
-    "AMRT.JK": "Consumer", "UNVR.JK": "Consumer", "ICBP.JK": "Consumer", "INDF.JK": "Consumer", "KLBF.JK": "Consumer", "SIDO.JK": "Consumer", "ACES.JK": "Consumer",
+    "ANTM.JK": "Mining", "INCO.JK": "Mining", "MDKA.JK": "Mining", "BRMS.JK": "Mining", "ADMR.JK": "Mining",
+    "AMRT.JK": "Consumer", "UNVR.JK": "Consumer", "ICBP.JK": "Consumer", "INDF.JK": "Consumer", "KLBF.JK": "Consumer", "SIDO.JK": "Consumer", "ACES.JK": "Consumer", "CPIN.JK": "Consumer",
     "ASII.JK": "Automotive", "DRMA.JK": "Automotive", "UNTR.JK": "Automotive",
     "TLKM.JK": "Infrastructure", "TOWR.JK": "Infrastructure", "EXCL.JK": "Infrastructure", "JSMR.JK": "Infrastructure", "PTPP.JK": "Infrastructure", "SMGR.JK": "Infrastructure", "SCMA.JK": "Infrastructure",
     "TPIA.JK": "Basic Materials", "INKP.JK": "Basic Materials",
@@ -134,7 +134,7 @@
     "macro": 0.05
   },
   "commercial": {
-    "license_key": "YOUR_LICENSE_KEY_HERE",
+    "license_key": "SVGN-PRO-V15-COMM-2026",
     "terminal_version": "V15-PRO"
   }
 }

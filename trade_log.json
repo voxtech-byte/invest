@@ -20,5 +20,60 @@
     "reason": "Terminal-Live S:7.3",
     "realized_pnl": 0.0,
     "balance_after": 24937061.9
+  },
+  {
+    "date": "2026-04-21T08:11:08.255740+07:00",
+    "action": "BUY",
+    "symbol": "INKP.JK",
+    "price": 10000.0,
+    "qty": 100,
+    "fee": 1500.0,
+    "reason": "MANUAL FORCE BUY",
+    "realized_pnl": 0.0,
+    "balance_after": 23935561.9
+  },
+  {
+    "date": "2026-04-21T08:11:56.456288+07:00",
+    "action": "SELL",
+    "symbol": "AKRA.JK",
+    "price": 1485.0,
+    "qty": 3400,
+    "fee": 12622.5,
+    "reason": "MANUAL EMERGENCY SELL",
+    "realized_pnl": -20196.0,
+    "balance_after": 28971939.4
+  },
+  {
+    "date": "2026-04-21T08:12:07.064827+07:00",
+    "action": "BUY",
+    "symbol": "AKRA.JK",
+    "price": 1485.0,
+    "qty": 100,
+    "fee": 222.75,
+    "reason": "MANUAL FORCE BUY",
+    "realized_pnl": 0.0,
+    "balance_after": 28823216.65
+  },
+  {
+    "date": "2026-04-21T08:12:25.532159+07:00",
+    "action": "BUY",
+    "symbol": "BBRI.JK",
+    "price": 3231.0,
+    "qty": 100,
+    "fee": 484.65000000000003,
+    "reason": "MANUAL FORCE BUY",
+    "realized_pnl": 0.0,
+    "balance_after": 28499632.0
+  },
+  {
+    "date": "2026-04-21T08:12:34.440321+07:00",
+    "action": "BUY",
+    "symbol": "BBRI.JK",
+    "price": 3231.0,
+    "qty": 100,
+    "fee": 484.65000000000003,
+    "reason": "MANUAL FORCE BUY",
+    "realized_pnl": 0.0,
+    "balance_after": 28176047.35
   }
 ]

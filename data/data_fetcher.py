@@ -4,7 +4,7 @@ import requests
 import json
 import os
 import time
-from typing import Any, Dict
+from typing import Any, Dict, Optional, Union
 from logger import get_logger
 
 logger = get_logger(__name__)
@@ -14,7 +14,7 @@ logger = get_logger(__name__)
 # DATA FETCHERS (Multi-Source with Fallback)
 # ══════════════════════════════════════════════════════════════
 
-def _fetch_yfinance(symbol: str, config: dict[str, Any], period: str = "1y") -> pd.DataFrame | None:
+def _fetch_yfinance(symbol: str, config: dict[str, Any], period: str = "1y") -> Optional[pd.DataFrame]:
     try:
         stock = yf.Ticker(symbol)
         df = stock.history(period=period, interval="1d")
@@ -33,7 +33,7 @@ def _fetch_yfinance(symbol: str, config: dict[str, Any], period: str = "1y") -> 
         logger.debug(f"[{symbol}] yfinance error: {e}")
         return None
 
-def _fetch_alphavantage(symbol: str, config: dict[str, Any]) -> pd.DataFrame | None:
+def _fetch_alphavantage(symbol: str, config: dict[str, Any]) -> Optional[pd.DataFrame]:
     api_keys = config.get('api_keys', {})
     key = api_keys.get('alpha_vantage')
     if not key or key == "YOUR_KEY" or "YOUR_" in key:
@@ -59,7 +59,7 @@ def _fetch_alphavantage(symbol: str, config: dict[str, Any]) -> pd.DataFrame | N
         logger.debug(f"[{symbol}] Alpha Vantage error: {e}")
         return None
 
-def _fetch_fcsapi(symbol: str, config: dict[str, Any]) -> pd.DataFrame | None:
+def _fetch_fcsapi(symbol: str, config: dict[str, Any]) -> Optional[pd.DataFrame]:
     api_keys = config.get('api_keys', {})
     key = api_keys.get('fcs_api')
     if not key or key == "YOUR_KEY" or "YOUR_" in key:
@@ -115,7 +115,7 @@ def _is_suspended(df: pd.DataFrame, symbol: str) -> bool:
     return False
 
 
-def fetch_data(symbol: str, config: dict[str, Any]) -> pd.DataFrame | None:
+def fetch_data(symbol: str, config: dict[str, Any]) -> Optional[pd.DataFrame]:
     """
     Multi-source data fetcher with suspend/delist detection and retry.
     """
@@ -156,7 +156,7 @@ IHSG_CACHE_TTL = 300  # 5 minutes
 _IHSG_MEMORY_CACHE = {"data": None, "timestamp": 0}
 
 
-def fetch_ihsg(config: dict[str, Any]) -> dict[str, Any] | None:
+def fetch_ihsg(config: dict[str, Any]) -> Optional[dict[str, Any]]:
     """
     Fetch IHSG data with dual-layer caching:
     1. In-memory (for same process, e.g. Streamlit rerun)

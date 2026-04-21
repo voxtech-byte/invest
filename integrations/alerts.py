@@ -159,32 +159,52 @@ import os
 import requests
 import asyncio
 
-async def send_telegram(message: str, photo_path: str = None) -> bool:
-    """Send formatted message (and optional photo) to Telegram."""
-    bot_token = os.getenv("TELEGRAM_BOT_TOKEN")
-    chat_id = os.getenv("TELEGRAM_CHAT_ID")
+class TelegramNotifier:
+    def __init__(self, bot_type='trading'):
+        self.bot_type = bot_type
+        if bot_type == 'trading':
+            self.token = os.getenv('TELEGRAM_BOT_TOKEN')
+            self.chat_id = os.getenv('TELEGRAM_CHAT_ID')
+        elif bot_type == 'admin':
+            self.token = os.getenv('TELEGRAM_ADMIN_BOT_TOKEN')
+            self.chat_id = os.getenv('TELEGRAM_ADMIN_CHAT_ID')
 
-    if not bot_token or not chat_id:
-        return False
+    async def send(self, message: str, msg_type: str = 'info', photo_path: str = None) -> bool:
+        if not self.token or not self.chat_id:
+            return False
 
-    url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
-    payload = {
-        "chat_id": chat_id,
-        "text": message,
-        "parse_mode": "Markdown"
-    }
+        # Apply formatting if it's an admin alert, trading alerts are pre-formatted
+        if self.bot_type == 'admin':
+            if msg_type == 'critical':
+                message = f"🚨 *CRITICAL SYSTEM ALERT*\n\n{message}"
+            elif msg_type == 'warning':
+                message = f"⚠️ *SYSTEM WARNING*\n\n{message}"
+            else:
+                message = f"ℹ️ *SYSTEM INFO*\n\n{message}"
 
-    try:
-        if photo_path and os.path.exists(photo_path):
-            photo_url = f"https://api.telegram.org/bot{bot_token}/sendPhoto"
-            with open(photo_path, "rb") as photo:
-                files = {"photo": photo}
-                res = requests.post(photo_url, data={"chat_id": chat_id, "caption": message, "parse_mode": "Markdown"}, files=files, timeout=15)
+        url = f"https://api.telegram.org/bot{self.token}/sendMessage"
+        payload = {
+            "chat_id": self.chat_id,
+            "text": message,
+            "parse_mode": "Markdown"
+        }
+
+        try:
+            if photo_path and os.path.exists(photo_path):
+                photo_url = f"https://api.telegram.org/bot{self.token}/sendPhoto"
+                with open(photo_path, "rb") as photo:
+                    files = {"photo": photo}
+                    res = await asyncio.to_thread(requests.post, photo_url, data={"chat_id": self.chat_id, "caption": message, "parse_mode": "Markdown"}, files=files, timeout=15)
+                    return res.status_code == 200
+            else:
+                res = await asyncio.to_thread(requests.post, url, json=payload, timeout=10)
                 return res.status_code == 200
-        else:
-            res = requests.post(url, json=payload, timeout=10)
-            return res.status_code == 200
-    except Exception as e:
-        print(f"Telegram error: {e}")
-        return False
+        except Exception as e:
+            print(f"Telegram {self.bot_type} bot error: {e}")
+            return False
+
+async def send_telegram(message: str, photo_path: str = None) -> bool:
+    """Backward compatible function for trading alerts."""
+    notifier = TelegramNotifier('trading')
+    return await notifier.send(message, photo_path=photo_path)
 

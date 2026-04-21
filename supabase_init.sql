@@ -108,6 +108,34 @@ CREATE INDEX IF NOT EXISTS idx_logs_created_at ON system_logs (created_at DESC);
 
 
 -- ══════════════════════════════════════════════════════════════
+-- 6. FEEDBACK TABLE (NPS & User Feedback)
+-- ══════════════════════════════════════════════════════════════
+CREATE TABLE IF NOT EXISTS feedback (
+    id          BIGSERIAL PRIMARY KEY,
+    user_email  TEXT,
+    nps_score   INTEGER NOT NULL CHECK (nps_score >= 0 AND nps_score <= 10),
+    message     TEXT,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_feedback_created_at ON feedback (created_at DESC);
+
+
+-- ══════════════════════════════════════════════════════════════
+-- 7. HEARTBEAT LOGS TABLE
+-- ══════════════════════════════════════════════════════════════
+CREATE TABLE IF NOT EXISTS heartbeat_logs (
+    id          BIGSERIAL PRIMARY KEY,
+    status      TEXT NOT NULL CHECK (status IN ('OK', 'ERROR', 'CRITICAL')),
+    components  JSONB DEFAULT '{}',
+    latency_ms  INTEGER DEFAULT 0,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_heartbeat_created_at ON heartbeat_logs (created_at DESC);
+
+
+-- ══════════════════════════════════════════════════════════════
 -- RLS POLICIES (Service Role Full Access)
 -- ══════════════════════════════════════════════════════════════
 ALTER TABLE active_positions ENABLE ROW LEVEL SECURITY;
@@ -115,9 +143,13 @@ ALTER TABLE trade_history ENABLE ROW LEVEL SECURITY;
 ALTER TABLE equity_snapshots ENABLE ROW LEVEL SECURITY;
 ALTER TABLE scan_results ENABLE ROW LEVEL SECURITY;
 ALTER TABLE system_logs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE feedback ENABLE ROW LEVEL SECURITY;
+ALTER TABLE heartbeat_logs ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY "service_role_all" ON active_positions FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "service_role_all" ON trade_history FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "service_role_all" ON equity_snapshots FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "service_role_all" ON scan_results FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "service_role_all" ON system_logs FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "service_role_all" ON feedback FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "service_role_all" ON heartbeat_logs FOR ALL USING (true) WITH CHECK (true);

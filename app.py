@@ -101,6 +101,25 @@ def render_ticker(news):
     ticker_html = f"<div class='ticker-wrap'><div class='ticker'>{''.join(items)}</div></div>"
     st.markdown(ticker_html, unsafe_allow_html=True)
 
+@st.dialog("Share Feedback (2 min)")
+def show_feedback_dialog():
+    st.write("How likely are you to recommend Sovereign to a colleague?")
+    nps_score = st.slider("NPS Score", 0, 10, 5, help="0 = Not likely at all, 10 = Extremely likely")
+    message = st.text_area("What can we improve?", placeholder="Optional...")
+    user_email = st.text_input("Your Email (if you want us to follow up)", placeholder="Optional...")
+    
+    if st.button("Submit Feedback", type="primary"):
+        from data.database import DatabaseManager
+        db_mgr = DatabaseManager()
+        db_mgr.save_feedback({
+            "user_email": user_email,
+            "nps_score": nps_score,
+            "message": message,
+            "created_at": datetime.utcnow().isoformat()
+        })
+        st.toast("Thanks for feedback! We'll review within 24h", icon="🚀")
+        st.rerun()
+
 def compile_institutional_data(selected_tickers, config, ihsg_data=None):
     """
     Kompilasi Rangkuman Data Kuantitatif Terbaru (Master Summary Table).
@@ -161,6 +180,9 @@ def compile_institutional_data(selected_tickers, config, ihsg_data=None):
 # =====================================================================
 # HEADER: REAL-TIME METRICS
 # =====================================================================
+# Load IHSG early for metrics
+ihsg = get_cached_ihsg(config)
+
 col_brand, col_ihsg, col_equity, col_controls = st.columns([1.5, 2.5, 3, 2])
 
 with col_brand:
@@ -184,7 +206,7 @@ with col_brand:
     st.markdown(f"<div style='display:inline-block; font-size:0.7rem; color:{regime_color}; border:1px solid {regime_color}; padding:2px 8px; border-radius:4px; font-weight:700;'>{regime_label}</div>", unsafe_allow_html=True)
 
 with col_ihsg:
-    ihsg = get_cached_ihsg(config)  # Cached to prevent yfinance rate limiting
+    # already loaded at top of metrics section
     from core.utils import is_market_open
     market_open = is_market_open()
     m_color = "#3FB950" if market_open else "#8b949e"
@@ -329,6 +351,12 @@ with st.sidebar:
 
     st.divider()
 
+    # ═════ USER FEEDBACK ═════
+    if not st.session_state.is_demo:
+        if st.button("💬 Share Feedback (2 min)", use_container_width=True, type="secondary"):
+            show_feedback_dialog()
+        st.divider()
+
     # ═════ MANUAL OVERRIDE ═════
     st.markdown("### ⚡ MANUAL OVERRIDE")
     override_sym = st.selectbox("Select Stock", options=[""] + current_stocks, key="override_sym")
@@ -434,8 +462,8 @@ with main_left:
     # ═════════════════════════════════════════════════════════
     # V15 PREMIUM PANELS (TABBED)
     # ═════════════════════════════════════════════════════════
-    tab_eq, tab_sector, tab_risk, tab_dna, tab_alerts = st.tabs([
-        "📈 Equity Curve", "🔥 Sector Heatmap", "🛡️ Risk Dashboard", "🧬 Trade DNA", "📋 Alert History"
+    tab_eq, tab_sector, tab_risk, tab_dna, tab_alerts, tab_settings = st.tabs([
+        "📈 Equity Curve", "🔥 Sector Heatmap", "🛡️ Risk Dashboard", "🧬 Trade DNA", "📋 Alert History", "⚙️ Settings"
     ])
 
     # ── TAB 1: EQUITY CURVE ──
@@ -609,6 +637,32 @@ with main_left:
                 st.markdown(f"<div style='font-size:0.75rem; border-bottom:1px solid #21262d; padding:4px 0; font-family:monospace;'>{alert}</div>", unsafe_allow_html=True)
         else:
             st.info("Alert history will populate as the bot sends Telegram notifications during auto-pilot.")
+
+    # ── TAB 6: SETTINGS & ANALYTICS ──
+    with tab_settings:
+        st.markdown("### Product Health & Analytics")
+        feedback_summary = db.get_feedback_summary()
+        avg_nps = feedback_summary.get('nps', 0)
+        fb_count = feedback_summary.get('count', 0)
+        
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            nps_color = "#3FB950" if avg_nps >= 7 else "#D29922" if avg_nps >= 5 else "#F85149"
+            st.markdown(f"""
+            <div class="sovereign-card" style="text-align:center;">
+                <div class="metric-label">CURRENT NPS SCORE</div>
+                <div style="font-size:2rem; color:{nps_color}; font-weight:700;">{avg_nps:.1f}</div>
+                <div style="font-size:0.65rem; color:#8b949e;">Based on {fb_count} responses</div>
+            </div>""", unsafe_allow_html=True)
+            
+        st.markdown("#### Recent Feedback")
+        if feedback_summary.get('recent'):
+            for fb in feedback_summary['recent']:
+                sc = fb.get('nps_score', 0)
+                emoji = "🤩" if sc >= 9 else "🙂" if sc >= 7 else "😐"
+                st.markdown(f"> **{emoji} {sc}/10** - {fb.get('user_email', 'Anonymous')}<br>_{fb.get('message', 'No message')}_", unsafe_allow_html=True)
+        else:
+            st.info("No feedback received yet.")
 
 with main_right:
     # 1. POLITICAL RISK METER

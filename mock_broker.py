@@ -13,7 +13,7 @@ import json
 import os
 import math
 from datetime import datetime, date
-from typing import Any
+from typing import Any, Dict, List, Optional, Union, Tuple
 
 import pytz
 
@@ -253,7 +253,7 @@ class MockBroker:
     def execute_buy(self, symbol: str, price: float, lot: int,
                     reason: str = "",
                     stop_loss: float = 0, target_1: float = 0,
-                    target_2: float = 0) -> tuple[bool, dict[str, Any] | str]:
+                    target_2: float = 0) -> Tuple[bool, Union[Dict[str, Any], str]]:
         """Execute a mock buy order with IDX fee structure.
 
         Args:
@@ -337,8 +337,8 @@ class MockBroker:
             "balance": self.equity
         }
 
-    def execute_sell(self, symbol: str, price: float, lot: int | None = None,
-                     reason: str = "") -> tuple[bool, dict[str, Any] | str]:
+    def execute_sell(self, symbol: str, price: float, lot: Optional[int] = None,
+                     reason: str = "") -> Tuple[bool, Union[Dict[str, Any], str]]:
         """Execute a mock sell order with IDX fee structure.
 
         Args:
