@@ -1,0 +1,379 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Portfolio Analytics</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;900&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+          darkMode: "class",
+          theme: {
+            extend: {
+              "colors": {
+                      "on-secondary-fixed": "#002204",
+                      "on-error-container": "#ffdad6",
+                      "primary-fixed-dim": "#66d9cc",
+                      "on-primary-fixed": "#00201d",
+                      "on-tertiary": "#680008",
+                      "error": "#ffb4ab",
+                      "surface-variant": "#353535",
+                      "outline-variant": "#3d4947",
+                      "primary-fixed": "#84f5e8",
+                      "tertiary-fixed": "#ffdad6",
+                      "on-tertiary-fixed-variant": "#930010",
+                      "tertiary": "#ffb3ac",
+                      "surface-dim": "#131313",
+                      "on-surface": "#e5e2e1",
+                      "surface-container-low": "#1b1b1c",
+                      "on-primary-fixed-variant": "#005049",
+                      "surface-container": "#202020",
+                      "secondary-fixed": "#a3f69c",
+                      "error-container": "#93000a",
+                      "surface-container-high": "#2a2a2a",
+                      "surface-tint": "#66d9cc",
+                      "on-tertiary-fixed": "#410003",
+                      "surface-container-highest": "#353535",
+                      "inverse-on-surface": "#303030",
+                      "on-tertiary-container": "#630007",
+                      "on-secondary": "#003909",
+                      "on-secondary-fixed-variant": "#005312",
+                      "secondary": "#88d982",
+                      "on-primary-container": "#003430",
+                      "surface-container-lowest": "#0e0e0e",
+                      "on-background": "#e5e2e1",
+                      "primary": "#66d9cc",
+                      "inverse-primary": "#006a62",
+                      "inverse-surface": "#e5e2e1",
+                      "secondary-fixed-dim": "#88d982",
+                      "background": "#131313",
+                      "primary-container": "#26a69a",
+                      "on-error": "#690005",
+                      "outline": "#869391",
+                      "on-primary": "#003732",
+                      "on-surface-variant": "#bcc9c6",
+                      "tertiary-container": "#ff5e56",
+                      "surface-bright": "#393939",
+                      "on-secondary-container": "#81d27c",
+                      "surface": "#131313",
+                      "tertiary-fixed-dim": "#ffb3ac",
+                      "secondary-container": "#005b14"
+              },
+              "borderRadius": {
+                      "DEFAULT": "0.125rem",
+                      "lg": "0.25rem",
+                      "xl": "0.5rem",
+                      "full": "0.75rem"
+              },
+              "fontFamily": {
+                      "headline": ["Inter", "sans-serif"],
+                      "body": ["Inter", "sans-serif"],
+                      "label": ["Inter", "sans-serif"],
+                      "mono": ["ui-monospace", "SFMono-Regular", "Menlo", "Monaco", "Consolas", "Liberation Mono", "Courier New", "monospace"]
+              }
+            }
+          }
+        }
+    </script>
+<style>
+        /* Kinetic Ledger Custom Utilities */
+        .ghost-border { border: 1px solid rgba(61, 73, 71, 0.2); }
+        .ghost-border-b { border-bottom: 1px solid rgba(61, 73, 71, 0.2); }
+        
+        /* Table Zebra Striping using Design System tokens */
+        .kinetic-table tr:nth-child(even) { background-color: #1b1b1c; } /* surface-container-low */
+        .kinetic-table tr:nth-child(odd) { background-color: #2a2a2a; }  /* surface-container-high */
+    </style>
+</head>
+<body class="bg-surface text-on-surface font-body h-screen w-full flex overflow-hidden">
+<!-- SideNavBar (from JSON logic) -->
+<aside class="bg-neutral-950 font-sans text-sm font-medium docked-left h-screen w-64 border-r border-neutral-800/20 flex flex-col h-full py-4 flex-shrink-0 z-20">
+<!-- Header -->
+<div class="px-6 pb-8 pt-2">
+<div class="flex items-center gap-3">
+<div class="w-8 h-8 rounded bg-surface-container flex items-center justify-center ghost-border">
+<span class="material-symbols-outlined text-primary text-xl">account_balance</span>
+</div>
+<div>
+<h1 class="text-teal-500 font-bold tracking-tight uppercase leading-none">INSTITUTIONAL</h1>
+<span class="text-[0.65rem] text-on-surface-variant uppercase tracking-widest font-mono">Direct Access</span>
+</div>
+</div>
+</div>
+<!-- Main Navigation -->
+<nav class="flex-1 flex flex-col gap-1 px-3">
+<a class="flex items-center gap-3 px-3 py-2 rounded text-neutral-500 hover:bg-neutral-900 hover:text-neutral-200 transition-all duration-200-ease-in-out" href="#">
+<span class="material-symbols-outlined text-[1.25rem]">dashboard</span>
+                Command
+            </a>
+<a class="flex items-center gap-3 px-3 py-2 rounded bg-neutral-800 text-teal-400 border-l-4 border-teal-500 transition-all duration-200-ease-in-out" href="#">
+<span class="material-symbols-outlined text-[1.25rem]">analytics</span>
+                Portfolio
+            </a>
+<a class="flex items-center gap-3 px-3 py-2 rounded text-neutral-500 hover:bg-neutral-900 hover:text-neutral-200 transition-all duration-200-ease-in-out" href="#">
+<span class="material-symbols-outlined text-[1.25rem]">query_stats</span>
+                Signals
+            </a>
+<a class="flex items-center gap-3 px-3 py-2 rounded text-neutral-500 hover:bg-neutral-900 hover:text-neutral-200 transition-all duration-200-ease-in-out" href="#">
+<span class="material-symbols-outlined text-[1.25rem]">security</span>
+                Risk
+            </a>
+<a class="flex items-center gap-3 px-3 py-2 rounded text-neutral-500 hover:bg-neutral-900 hover:text-neutral-200 transition-all duration-200-ease-in-out" href="#">
+<span class="material-symbols-outlined text-[1.25rem]">menu_book</span>
+                Journal
+            </a>
+<a class="flex items-center gap-3 px-3 py-2 rounded text-neutral-500 hover:bg-neutral-900 hover:text-neutral-200 transition-all duration-200-ease-in-out" href="#">
+<span class="material-symbols-outlined text-[1.25rem]">settings</span>
+                Settings
+            </a>
+</nav>
+<!-- Footer Navigation -->
+<div class="px-3 pt-4 ghost-border-t border-t">
+<nav class="flex flex-col gap-1">
+<a class="flex items-center gap-3 px-3 py-2 rounded text-neutral-500 hover:bg-neutral-900 hover:text-neutral-200 transition-all duration-200-ease-in-out" href="#">
+<span class="material-symbols-outlined text-[1.25rem]">help_outline</span>
+                    Support
+                </a>
+<a class="flex items-center gap-3 px-3 py-2 rounded text-neutral-500 hover:bg-neutral-900 hover:text-neutral-200 transition-all duration-200-ease-in-out" href="#">
+<span class="material-symbols-outlined text-[1.25rem]">terminal</span>
+                    Logs
+                </a>
+</nav>
+</div>
+</aside>
+<!-- Main Content Area -->
+<div class="flex-1 flex flex-col h-full overflow-hidden bg-background">
+<!-- TopNavBar (from JSON logic) -->
+<header class="bg-neutral-900 font-mono tracking-tight uppercase text-xs docked full-width top-0 border-b border-neutral-800/20 flex justify-between items-center w-full px-6 h-14 z-10 flex-shrink-0">
+<!-- Brand / Desktop Nav -->
+<div class="flex items-center gap-8 h-full">
+<div class="text-lg font-black tracking-tighter text-teal-500 mr-4">KINETIC LEDGER</div>
+<nav class="hidden md:flex h-full items-end gap-6">
+<a class="text-neutral-500 hover:text-neutral-300 hover:bg-neutral-800/50 transition-colors h-full flex items-center px-2" href="#">Command</a>
+<a class="text-teal-400 border-b-2 border-teal-500 pb-1 h-full flex items-center px-2" href="#">Portfolio</a>
+<a class="text-neutral-500 hover:text-neutral-300 hover:bg-neutral-800/50 transition-colors h-full flex items-center px-2" href="#">Signals</a>
+<a class="text-neutral-500 hover:text-neutral-300 hover:bg-neutral-800/50 transition-colors h-full flex items-center px-2" href="#">Risk</a>
+<a class="text-neutral-500 hover:text-neutral-300 hover:bg-neutral-800/50 transition-colors h-full flex items-center px-2" href="#">Journal</a>
+<a class="text-neutral-500 hover:text-neutral-300 hover:bg-neutral-800/50 transition-colors h-full flex items-center px-2" href="#">Settings</a>
+</nav>
+</div>
+<!-- Trailing Actions -->
+<div class="flex items-center gap-4">
+<button class="text-neutral-500 hover:text-neutral-300 transition-colors scale-95-active">
+<span class="material-symbols-outlined">notifications</span>
+</button>
+<button class="text-neutral-500 hover:text-neutral-300 transition-colors scale-95-active">
+<span class="material-symbols-outlined">account_balance_wallet</span>
+</button>
+<div class="w-7 h-7 rounded bg-surface-container overflow-hidden ml-2 ghost-border">
+<!-- Profile Placeholder -->
+<div class="w-full h-full bg-surface-container-high flex items-center justify-center text-primary font-bold">T</div>
+</div>
+</div>
+</header>
+<!-- Canvas Container -->
+<main class="flex-1 overflow-y-auto p-6 flex flex-col gap-6">
+<!-- Page Header -->
+<header class="flex justify-between items-end mb-2">
+<div>
+<h2 class="text-[2rem] font-headline font-bold text-on-surface leading-none tracking-tight">PORTFOLIO ANALYTICS</h2>
+<p class="text-xs text-on-surface-variant font-mono mt-2">SYS_TIME: 14:32:05 EST | REGION: GLOBAL</p>
+</div>
+<div class="flex gap-2">
+<button class="h-8 px-4 bg-surface-container-high text-on-surface font-mono text-xs rounded hover:bg-surface-bright transition-colors ghost-border flex items-center gap-2">
+<span class="material-symbols-outlined text-[1rem]">download</span> EXPORT
+                    </button>
+</div>
+</header>
+<!-- 2x2 Grid Layout -->
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-6 h-[800px] min-h-[600px]">
+<!-- TOP LEFT: Equity vs IHSG Line Chart -->
+<section class="bg-surface-container rounded flex flex-col ghost-border overflow-hidden">
+<div class="px-5 py-4 ghost-border-b bg-surface-container-low flex justify-between items-center">
+<h3 class="text-xs font-mono text-on-surface-variant tracking-wider uppercase">Equity Curve vs IHSG</h3>
+<div class="flex gap-4 font-mono text-[10px]">
+<div class="flex items-center gap-2"><span class="w-2 h-2 rounded-full bg-primary block"></span> PORTFOLIO</div>
+<div class="flex items-center gap-2"><span class="w-2 h-2 rounded-full bg-outline-variant block"></span> IHSG</div>
+</div>
+</div>
+<div class="flex-1 relative p-4 flex">
+<!-- Chart Area -->
+<div class="flex-1 relative border-l border-b border-outline-variant/10">
+<!-- Grid lines -->
+<div class="absolute inset-0 flex flex-col justify-between">
+<div class="w-full h-px bg-outline-variant/10"></div>
+<div class="w-full h-px bg-outline-variant/10"></div>
+<div class="w-full h-px bg-outline-variant/10"></div>
+<div class="w-full h-px bg-outline-variant/10"></div>
+<div class="w-full h-px bg-outline-variant/10"></div>
+</div>
+<!-- SVG Lines -->
+<svg class="absolute inset-0 h-full w-full" preserveaspectratio="none" viewbox="0 0 100 100">
+<!-- IHSG Benchmark (Gray) -->
+<polyline fill="none" points="0,80 10,75 20,78 30,60 40,65 50,55 60,60 70,40 80,45 90,30 100,35" stroke="#3d4947" stroke-width="1.5" vector-effect="non-scaling-stroke"></polyline>
+<!-- Portfolio Equity (Primary) -->
+<polyline fill="none" points="0,90 10,85 20,70 30,75 40,50 50,45 60,25 70,30 80,15 90,10 100,5" stroke="#66d9cc" stroke-width="1.5" vector-effect="non-scaling-stroke"></polyline>
+</svg>
+</div>
+<!-- Y-Axis Labels (Right Side) -->
+<div class="w-16 flex flex-col justify-between items-end pl-2 font-mono text-[9px] text-on-surface-variant py-0">
+<span>+45.2%</span>
+<span>+30.0%</span>
+<span>+15.0%</span>
+<span>0.0%</span>
+<span>-10.0%</span>
+</div>
+</div>
+</section>
+<!-- TOP RIGHT: Drawdown Tracker Area Chart -->
+<section class="bg-surface-container rounded flex flex-col ghost-border overflow-hidden">
+<div class="px-5 py-4 ghost-border-b bg-surface-container-low flex justify-between items-center">
+<h3 class="text-xs font-mono text-on-surface-variant tracking-wider uppercase">Max Drawdown</h3>
+<span class="text-tertiary font-mono text-sm">-12.4%</span>
+</div>
+<div class="flex-1 relative p-4 pb-6 border-b border-outline-variant/10">
+<!-- Chart Area -->
+<div class="h-full w-full relative">
+<!-- Base Line (0%) -->
+<div class="absolute top-0 w-full h-px bg-outline-variant/30"></div>
+<svg class="absolute inset-0 h-full w-full" preserveaspectratio="none" viewbox="0 0 100 100">
+<!-- Area fill (Muted Crimson) - Bending rules slightly for user request but keeping opacity very low -->
+<polygon fill="#ffb3ac" opacity="0.05" points="0,0 10,5 20,2 30,15 40,8 50,30 60,12 70,5 80,20 90,5 100,0"></polygon>
+<!-- Line (Crimson) -->
+<polyline fill="none" points="0,0 10,5 20,2 30,15 40,8 50,30 60,12 70,5 80,20 90,5 100,0" stroke="#ffb3ac" stroke-width="1.5" vector-effect="non-scaling-stroke"></polyline>
+</svg>
+</div>
+<!-- X-Axis sparse labels -->
+<div class="absolute bottom-1 left-4 right-4 flex justify-between font-mono text-[9px] text-outline-variant">
+<span>Q1</span><span>Q2</span><span>Q3</span><span>Q4</span>
+</div>
+</div>
+</section>
+<!-- BOTTOM LEFT: Position Table -->
+<section class="bg-surface-container rounded flex flex-col ghost-border overflow-hidden col-span-1">
+<div class="px-5 py-3 bg-surface-container-highest ghost-border-b flex justify-between items-center">
+<h3 class="text-xs font-mono text-on-surface-variant tracking-wider uppercase">Active Positions</h3>
+<button class="text-on-surface-variant hover:text-primary transition-colors">
+<span class="material-symbols-outlined text-[1rem]">filter_list</span>
+</button>
+</div>
+<div class="flex-1 overflow-auto">
+<table class="w-full text-left border-collapse kinetic-table">
+<thead>
+<tr class="text-[10px] font-mono text-on-surface-variant uppercase tracking-wider bg-surface-container-lowest ghost-border-b sticky top-0">
+<th class="py-2 px-4 font-normal cursor-pointer hover:text-on-surface">Symbol <span class="material-symbols-outlined text-[10px] align-middle">arrow_drop_down</span></th>
+<th class="py-2 px-4 font-normal text-right">Avg Prc</th>
+<th class="py-2 px-4 font-normal text-right">Current</th>
+<th class="py-2 px-4 font-normal text-right cursor-pointer hover:text-on-surface">P&amp;L % <span class="material-symbols-outlined text-[10px] align-middle">arrow_drop_down</span></th>
+</tr>
+</thead>
+<tbody class="text-sm font-mono text-on-surface">
+<tr class="hover:bg-surface-container-highest transition-colors">
+<td class="py-2 px-4 text-primary">BBCA</td>
+<td class="py-2 px-4 text-right">8,200</td>
+<td class="py-2 px-4 text-right">9,850</td>
+<td class="py-2 px-4 text-right text-secondary">+20.12%</td>
+</tr>
+<tr class="hover:bg-surface-container-highest transition-colors">
+<td class="py-2 px-4 text-primary">BMRI</td>
+<td class="py-2 px-4 text-right">5,400</td>
+<td class="py-2 px-4 text-right">6,100</td>
+<td class="py-2 px-4 text-right text-secondary">+12.96%</td>
+</tr>
+<tr class="hover:bg-surface-container-highest transition-colors">
+<td class="py-2 px-4 text-primary">TLKM</td>
+<td class="py-2 px-4 text-right">3,850</td>
+<td class="py-2 px-4 text-right">3,720</td>
+<td class="py-2 px-4 text-right text-tertiary">-3.37%</td>
+</tr>
+<tr class="hover:bg-surface-container-highest transition-colors">
+<td class="py-2 px-4 text-primary">ASII</td>
+<td class="py-2 px-4 text-right">5,100</td>
+<td class="py-2 px-4 text-right">5,350</td>
+<td class="py-2 px-4 text-right text-secondary">+4.90%</td>
+</tr>
+<tr class="hover:bg-surface-container-highest transition-colors">
+<td class="py-2 px-4 text-primary">GOTO</td>
+<td class="py-2 px-4 text-right">85</td>
+<td class="py-2 px-4 text-right">64</td>
+<td class="py-2 px-4 text-right text-tertiary">-24.70%</td>
+</tr>
+<tr class="hover:bg-surface-container-highest transition-colors">
+<td class="py-2 px-4 text-primary">BRPT</td>
+<td class="py-2 px-4 text-right">1,020</td>
+<td class="py-2 px-4 text-right">1,150</td>
+<td class="py-2 px-4 text-right text-secondary">+12.74%</td>
+</tr>
+</tbody>
+</table>
+</div>
+</section>
+<!-- BOTTOM RIGHT: Sector Exposure Treemap -->
+<section class="bg-surface-container rounded flex flex-col ghost-border overflow-hidden col-span-1">
+<div class="px-5 py-4 ghost-border-b bg-surface-container-low flex justify-between items-center">
+<h3 class="text-xs font-mono text-on-surface-variant tracking-wider uppercase">Sector Exposure</h3>
+</div>
+<div class="flex-1 p-4">
+<!-- Treemap Implementation using Grid -->
+<div class="w-full h-full grid grid-cols-4 grid-rows-3 gap-0.5 font-mono text-xs">
+<!-- Financials - Largest Block -->
+<div class="col-span-2 row-span-2 bg-surface-variant hover:bg-surface-bright transition-colors relative group">
+<div class="absolute inset-0 p-2 flex flex-col justify-between">
+<span class="text-on-surface font-semibold">FINANCIALS</span>
+<div class="text-right">
+<span class="block text-primary">45.2%</span>
+</div>
+</div>
+</div>
+<!-- Energy -->
+<div class="col-span-2 row-span-1 bg-surface-container-high hover:bg-surface-variant transition-colors relative group">
+<div class="absolute inset-0 p-2 flex flex-col justify-between">
+<span class="text-on-surface">ENERGY</span>
+<div class="text-right">
+<span class="block text-secondary">22.8%</span>
+</div>
+</div>
+</div>
+<!-- Consumer -->
+<div class="col-span-1 row-span-1 bg-surface-container-highest hover:bg-surface-variant transition-colors relative group">
+<div class="absolute inset-0 p-2 flex flex-col justify-between">
+<span class="text-on-surface truncate">CONS</span>
+<div class="text-right">
+<span class="block text-outline">15.4%</span>
+</div>
+</div>
+</div>
+<!-- Basic Materials -->
+<div class="col-span-1 row-span-1 bg-[#262626] hover:bg-surface-variant transition-colors relative group">
+<div class="absolute inset-0 p-2 flex flex-col justify-between">
+<span class="text-on-surface truncate">MAT</span>
+<div class="text-right">
+<span class="block text-outline">8.1%</span>
+</div>
+</div>
+</div>
+<!-- Infrastructure -->
+<div class="col-span-3 row-span-1 bg-[#1e1e1e] hover:bg-surface-variant transition-colors relative group">
+<div class="absolute inset-0 p-2 flex flex-col justify-between">
+<span class="text-on-surface">INFRASTRUCTURE</span>
+<div class="text-right">
+<span class="block text-tertiary">6.3%</span>
+</div>
+</div>
+</div>
+<!-- Tech (Smallest) -->
+<div class="col-span-1 row-span-1 bg-[#181818] hover:bg-surface-variant transition-colors relative group">
+<div class="absolute inset-0 p-2 flex items-center justify-center">
+<span class="text-on-surface-variant text-[10px]">TECH</span>
+</div>
+</div>
+</div>
+</div>
+</section>
+</div>
+</main>
+</div>
+</body></html>

@@ -15,7 +15,7 @@ logger = get_logger(__name__)
 # WYCKOFF PHASE DETECTION (VSA + Standard Phases)
 # ══════════════════════════════════════════════════════════════
 
-def detect_wyckoff_phase(df: pd.DataFrame) -> tuple[str, dict]:
+def detect_wyckoff_phase(df: pd.DataFrame, config: dict) -> tuple[str, dict]:
     """
     Detect market cycle phase based on Wyckoff theory proxies + VSA.
     Returns (phase_label, metadata_dict) with conviction modifiers.
@@ -27,8 +27,14 @@ def detect_wyckoff_phase(df: pd.DataFrame) -> tuple[str, dict]:
 
     last = df.iloc[-1]
     prev_20 = df.iloc[-20]
-    ma50 = last.get('SMA_50', 0)
-    ma200 = last.get('SMA_200', 0)
+    ind_cfg = config.get('indicators', {})
+    ma_short = ind_cfg.get('ma_short', 50)
+    ma_long = ind_cfg.get('ma_long', 200)
+    sma_s_col = f"SMA_{ma_short}"
+    sma_l_col = f"SMA_{ma_long}"
+
+    ma50 = last.get(sma_s_col, last.get('SMA_50', 0))
+    ma200 = last.get(sma_l_col, last.get('SMA_200', 0))
     close = last['Close']
     low = last['Low']
     high = last['High']
@@ -57,7 +63,8 @@ def detect_wyckoff_phase(df: pd.DataFrame) -> tuple[str, dict]:
         return "UPTHRUST — Distribusi Institusi", meta
 
     # ── 3. STANDARD PHASES ──
-    if close > ma50 > ma200 and ma50 > prev_20.get('SMA_50', 0):
+    prev_ma50 = prev_20.get(sma_s_col, prev_20.get('SMA_50', 0))
+    if close > ma50 > ma200 and ma50 > prev_ma50:
         return "MARKUP (Strong Trend)", meta
     if close < ma50 < ma200:
         meta["trigger_exit"] = True
@@ -74,9 +81,9 @@ def detect_wyckoff_phase(df: pd.DataFrame) -> tuple[str, dict]:
     return "CONSOLIDATION (Neutral)", meta
 
 
-def detect_wyckoff_phase_simple(df: pd.DataFrame) -> str:
+def detect_wyckoff_phase_simple(df: pd.DataFrame, config: dict) -> str:
     """Backward-compatible wrapper returning just the label string."""
-    label, _ = detect_wyckoff_phase(df)
+    label, _ = detect_wyckoff_phase(df, config)
     return label
 
 
@@ -229,7 +236,7 @@ def evaluate_exit_conditions(
     vwap = last.get('VWAP_D', 0)
 
     # Wyckoff phase with metadata
-    phase, wyckoff_meta = detect_wyckoff_phase(df)
+    phase, wyckoff_meta = detect_wyckoff_phase(df, config)
 
     # ══ EXIT 1: Price breaches Stop Loss ══
     if close <= stop_loss:
@@ -315,12 +322,12 @@ def evaluate_signals(
         logger.warning(f"[{symbol}] Vol_Avg is 0 or missing — using raw volume as proxy")
 
     # ── Scoring Weights ──
-    weights = config.get('conviction_weights', {})
-    sm_score = _score_smart_money(df, last, config) * weights.get('smart_money', 0.35) / 0.35
-    trend_score = _score_trend(last, config) * weights.get('trend', 0.25) / 0.25
-    rsi_score = _score_rsi_phase(df, last, config) * weights.get('rsi_phase', 0.20) / 0.20
-    vol_score = _score_volatility(last, config) * weights.get('volatility', 0.15) / 0.15
-    macro_score = _score_macro(ihsg_data) * weights.get('macro', 0.05) / 0.05
+    # Each scoring function returns weighted score (0-10 * weight)
+    sm_score = _score_smart_money(df, last, config)
+    trend_score = _score_trend(last, config)
+    rsi_score = _score_rsi_phase(df, last, config)
+    vol_score = _score_volatility(last, config)
+    macro_score = _score_macro(ihsg_data, config)
 
     final_conviction = sm_score + trend_score + rsi_score + vol_score + macro_score
 
@@ -344,7 +351,7 @@ def evaluate_signals(
     weekly_trend = get_weekly_trend(df)
 
     # ── Wyckoff Phase + Conviction Modifier ──
-    wyckoff_phase, wyckoff_meta = detect_wyckoff_phase(df)
+    wyckoff_phase, wyckoff_meta = detect_wyckoff_phase(df, config)
     final_conviction += wyckoff_meta.get('conviction_modifier', 0.0)
 
     # ── V15: Institutional Behavior Modifiers ──
@@ -503,44 +510,122 @@ def evaluate_signals(
 
 
 # ══════════════════════════════════════════════════════════════
-# SCORING SUB-FUNCTIONS (with safe guards)
+# SCORING SUB-FUNCTIONS (simplified with consistent 0-10 scale)
 # ══════════════════════════════════════════════════════════════
 
 def _score_smart_money(df, last, config):
+    """
+    Score smart money indicators. Returns 0-10 base score (before weighting).
+    """
     vol_avg = last.get('Vol_Avg', 0)
     vol_ratio = last['Volume'] / vol_avg if vol_avg > 0 else 1.0
     cmf_col = [c for c in df.columns if c.startswith('CMF_')]
     cmf = last[cmf_col[0]] if cmf_col else 0.0
-    score = (0.4 if vol_ratio > 2.0 else 0.2 if vol_ratio > 1.2 else 0) + (0.3 if cmf > 0 else 0)
-    return 0.35 * min(1.0, score) * 10
+    
+    # Base score calculation (0-10 scale)
+    # Volume component: 0-5 points
+    vol_score = 5.0 if vol_ratio > 2.0 else 2.5 if vol_ratio > 1.2 else 0.0
+    
+    # CMF component: 0-5 points  
+    cmf_score = 5.0 if cmf > 0.1 else 2.5 if cmf > 0 else 0.0
+    
+    base_score = vol_score + cmf_score
+    weight = config.get('conviction_weights', {}).get('smart_money', 0.35)
+    
+    return base_score * weight
 
 
 def _score_trend(last, config):
-    ma200 = last.get(f"SMA_{config['indicators']['ma_long']}", 0)
-    score = (0.5 if last['Close'] > ma200 else 0) + (0.5 if last.get('ADX_14', 0) > 25 else 0)
-    return 0.25 * min(1.0, score) * 10
+    """
+    Score trend strength. Returns weighted score (0-10 * weight).
+    """
+    ma_long = config['indicators'].get('ma_long', 200)
+    ma_col = f"SMA_{ma_long}"
+    ma200 = last.get(ma_col, last.get('SMA_200', 0))
+    adx = last.get('ADX_14', 0)
+    
+    # Base score (0-10)
+    # Price vs MA: 0-5 points
+    price_vs_ma = 5.0 if last['Close'] > ma200 else 0.0
+    
+    # ADX trend strength: 0-5 points
+    adx_score = 5.0 if adx > 25 else 2.5 if adx > 20 else 0.0
+    
+    base_score = price_vs_ma + adx_score
+    weight = config.get('conviction_weights', {}).get('trend', 0.25)
+    
+    return base_score * weight
 
 
 def _score_rsi_phase(df, last, config):
-    rsi = last.get(f"RSI_{config['indicators']['rsi_length']}", 50)
-    phase = detect_wyckoff_phase_simple(df)
-    score = (0.5 if 40 < rsi < 70 else 0) + (0.5 if "MARKUP" in phase or "ACCUMULATION" in phase else 0)
-    return 0.20 * min(1.0, score) * 10
+    """
+    Score RSI phase and Wyckoff. Returns weighted score (0-10 * weight).
+    """
+    rsi_col = f"RSI_{config['indicators'].get('rsi_length', 14)}"
+    rsi = last.get(rsi_col, 50)
+    phase = detect_wyckoff_phase_simple(df, config)
+    
+    # Base score (0-10)
+    # RSI component: 0-5 points (optimal zone 40-70)
+    rsi_score = 5.0 if 40 < rsi < 70 else 2.5 if 30 < rsi < 80 else 0.0
+    
+    # Wyckoff phase component: 0-5 points
+    bullish_phases = ["MARKUP", "ACCUMULATION", "SPRING"]
+    phase_score = 5.0 if any(p in phase for p in bullish_phases) else 0.0
+    
+    base_score = rsi_score + phase_score
+    weight = config.get('conviction_weights', {}).get('rsi_phase', 0.20)
+    
+    return base_score * weight
 
 
 def _score_volatility(last, config):
-    atr_pct = (last.get('ATR_14', 0) / last['Close']) * 100 if last['Close'] > 0 else 5.0
-    score = 1.0 if atr_pct < 4.0 else 0.5 if atr_pct < 6.0 else 0.0
-    return 0.15 * min(1.0, score) * 10
+    """
+    Score volatility favorability. Lower volatility = higher score.
+    Returns weighted score (0-10 * weight).
+    """
+    atr = last.get('ATR_14', last.get(f"ATRr_{config['indicators'].get('atr_period', 14)}", 0))
+    atr_pct = (atr / last['Close']) * 100 if last['Close'] > 0 else 5.0
+    
+    # Base score (0-10): lower volatility = higher score
+    # < 3% ATR = excellent (10 points)
+    # 3-5% ATR = good (7 points)
+    # 5-7% ATR = moderate (4 points)
+    # > 7% ATR = poor (1 point)
+    if atr_pct < 3.0:
+        base_score = 10.0
+    elif atr_pct < 5.0:
+        base_score = 7.0
+    elif atr_pct < 7.0:
+        base_score = 4.0
+    else:
+        base_score = 1.0
+    
+    weight = config.get('conviction_weights', {}).get('volatility', 0.15)
+    return base_score * weight
 
 
-def _score_macro(ihsg):
+def _score_macro(ihsg, config):
+    """
+    Score macro/IHSG environment. Returns weighted score (0-10 * weight).
+    """
     if ihsg is None:
         return 0.0
+    
     trend = ihsg.get('trend', '')
+    pct = ihsg.get('pct_1d', ihsg.get('percent', 0))
+    
+    # Base score (0-10)
     if trend == 'BULLISH':
-        return 0.05 * 10
-    pct = ihsg.get('percent', 0)
-    if pct > 0.3:
-        return 0.05 * 7
-    return 0.0
+        base_score = 10.0
+    elif pct > 0.5:
+        base_score = 7.0
+    elif pct > 0.0:
+        base_score = 5.0
+    elif pct > -0.5:
+        base_score = 2.0
+    else:
+        base_score = 0.0
+    
+    weight = config.get('conviction_weights', {}).get('macro', 0.05)
+    return base_score * weight

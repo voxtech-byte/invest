@@ -21,7 +21,8 @@ from core.dark_pool import detect_hidden_flows
 from core.black_swan import detect_black_swan_event
 from data.data_fetcher import fetch_data, fetch_ihsg
 from data.database import DatabaseManager
-from integrations.alerts import format_alert, format_status_report, send_telegram
+from integrations.alerts import format_alert, format_status_report
+from integrations.telegram_queue import send_telegram_queued, flush_telegram_queue, get_telegram_queue
 from google_sheets_logger import GoogleSheetsLogger
 from core.sector_rotation import analyze_sector_rotation
 from core.config_validator import validate_config
@@ -30,6 +31,9 @@ logger = get_logger(__name__)
 
 async def main():
     logger.info("🏛️ SOVEREIGN QUANT TERMINAL V15: ENGINE INITIALIZED")
+    
+    # Initialize Telegram queue for rate-limited messaging
+    await get_telegram_queue()
     config = load_config()
 
     # ── Config Validation ──
@@ -60,6 +64,12 @@ async def main():
     # Initialize Broker
     from mock_broker import MockBroker
     broker = MockBroker(initial_equity=config.get('portfolio', {}).get('initial_equity', 50_000_000))
+
+    # Position Reconciliation: Ensure broker and DB are in sync
+    from core.position_sync import run_reconciliation
+    sync_result = run_reconciliation(broker, db)
+    if sync_result.get('status') == 'ISSUES_FOUND':
+        logger.warning(f"📊 Position sync issues auto-resolved: {len(sync_result.get('fixes_applied', []))} fixes")
 
     stocks = config.get('stocks', [])
     ihsg_data = fetch_ihsg(config)
@@ -120,7 +130,7 @@ async def main():
                             "data": remaining if remaining else pos,
                             "exit_reason": exit_reason
                         }, extra={"lot": sell_qty})
-                        await send_telegram(alert_msg)
+                        await send_telegram_queued(alert_msg)
                 else:
                     logger.info(f"[{sym}] TP1 hit but position too small for partial sell ({pos['quantity']} shares)")
 
@@ -144,7 +154,7 @@ async def main():
                         "data": pos,
                         "exit_reason": exit_reason
                     }, extra={"lot": pos['quantity']})
-                    await send_telegram(alert_msg)
+                    await send_telegram_queued(alert_msg)
 
         except Exception as e:
             logger.error(f"[{sym}] Exit evaluation error: {e}")
@@ -198,10 +208,7 @@ async def main():
             detect_hidden_flows(df, config)
             detect_black_swan_event(df)
 
-            # ── Check if we already hold this stock (pass position for exit eval) ──
-            current_pos = broker.get_open_positions().get(symbol)
-
-            # Signal Evaluation
+            # Signal Evaluation (current_pos sudah di-fetch di line 189)
             signal, summary, reason = evaluate_signals(
                 symbol, df, config,
                 ihsg_data=ihsg_data,
@@ -284,7 +291,7 @@ async def main():
                                     "heat_pct": heat_pct,
                                     "regime": ihsg_data.get('volatility_regime', 'NORMAL') if ihsg_data else 'NORMAL'
                                 })
-                                await send_telegram(alert_msg)
+                                await send_telegram_queued(alert_msg)
                         else:
                             logger.info(f"[{symbol}] Signal valid but lot=0 after sizing")
                     else:
@@ -309,7 +316,7 @@ async def main():
         for sr in sector_rotation[:3]:
             report_msg += f"🔥 `{sr['sector']}`: {sr['avg_momentum_20d']:+.1f}% (Breadth {sr['breadth_pct']:.0f}%)\n"
             
-    await send_telegram(report_msg)
+    await send_telegram_queued(report_msg)
     
     # Save Equity Snapshot
     total_pos_value = sum(p['quantity'] * p['avg_price'] for p in broker.get_open_positions().values())
@@ -320,6 +327,9 @@ async def main():
         daily_pnl=broker.get_daily_realized_pnl(),
         total_equity=total_equity
     )
+    
+    # Flush Telegram queue to ensure all messages are sent
+    await flush_telegram_queue()
 
 if __name__ == "__main__":
     asyncio.run(main())

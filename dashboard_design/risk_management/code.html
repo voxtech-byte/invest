@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Risk Management - Kinetic Ledger</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "on-secondary-fixed": "#002204",
+                        "on-error-container": "#ffdad6",
+                        "primary-fixed-dim": "#66d9cc",
+                        "on-primary-fixed": "#00201d",
+                        "on-tertiary": "#680008",
+                        "error": "#ffb4ab",
+                        "surface-variant": "#353535",
+                        "outline-variant": "#3d4947",
+                        "primary-fixed": "#84f5e8",
+                        "tertiary-fixed": "#ffdad6",
+                        "on-tertiary-fixed-variant": "#930010",
+                        "tertiary": "#ffb3ac",
+                        "surface-dim": "#131313",
+                        "on-surface": "#e5e2e1",
+                        "surface-container-low": "#1b1b1c",
+                        "on-primary-fixed-variant": "#005049",
+                        "surface-container": "#202020",
+                        "secondary-fixed": "#a3f69c",
+                        "error-container": "#93000a",
+                        "surface-container-high": "#2a2a2a",
+                        "surface-tint": "#66d9cc",
+                        "on-tertiary-fixed": "#410003",
+                        "surface-container-highest": "#353535",
+                        "inverse-on-surface": "#303030",
+                        "on-tertiary-container": "#630007",
+                        "on-secondary": "#003909",
+                        "on-secondary-fixed-variant": "#005312",
+                        "secondary": "#88d982",
+                        "on-primary-container": "#003430",
+                        "surface-container-lowest": "#0e0e0e",
+                        "on-background": "#e5e2e1",
+                        "primary": "#66d9cc",
+                        "inverse-primary": "#006a62",
+                        "inverse-surface": "#e5e2e1",
+                        "secondary-fixed-dim": "#88d982",
+                        "background": "#131313",
+                        "primary-container": "#26a69a",
+                        "on-error": "#690005",
+                        "outline": "#869391",
+                        "on-primary": "#003732",
+                        "on-surface-variant": "#bcc9c6",
+                        "tertiary-container": "#ff5e56",
+                        "surface-bright": "#393939",
+                        "on-secondary-container": "#81d27c",
+                        "surface": "#131313",
+                        "tertiary-fixed-dim": "#ffb3ac",
+                        "secondary-container": "#005b14"
+                    },
+                    borderRadius: {
+                        "DEFAULT": "0.125rem",
+                        "lg": "0.25rem",
+                        "xl": "0.5rem",
+                        "full": "0.75rem"
+                    },
+                    fontFamily: {
+                        "headline": ["Inter", "sans-serif"],
+                        "body": ["Inter", "sans-serif"],
+                        "label": ["Inter", "sans-serif"],
+                        "mono": ["ui-monospace", "SFMono-Regular", "Menlo", "Monaco", "Consolas", "Liberation Mono", "Courier New", "monospace"]
+                    }
+                }
+            }
+        }
+    </script>
+<style>
+        .tonal-transition-bg {
+            background: linear-gradient(to bottom, var(--tw-colors-surface-container-low) 0%, var(--tw-colors-background) 100%);
+        }
+        .flat-no-shadows {
+            box-shadow: none;
+        }
+        .docked-left {
+            position: fixed;
+            left: 0;
+            top: 0;
+        }
+        .tonal-layering-surface-container-low {
+            background-color: theme('colors.surface-container-low');
+        }
+        .flat-architectural-lift {
+            box-shadow: none;
+            /* Lift effect managed by stacking surface tiers */
+        }
+    </style>
+</head>
+<body class="bg-background text-on-surface font-body antialiased flex h-screen overflow-hidden">
+<!-- SideNavBar (WEB) -->
+<nav class="hidden md:flex flex-col h-full py-4 docked-left h-screen w-64 border-r border-neutral-800/20 tonal-layering-surface-container-low flat-architectural-lift z-20">
+<div class="px-6 mb-8">
+<div class="flex items-center gap-3">
+<img alt="Firm Logo" class="w-8 h-8 rounded-DEFAULT bg-surface-container-high object-cover" data-alt="Abstract geometric logo mark with sharp edges and a minimalist monochrome aesthetic on a dark background" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAYWsFpAC2ILht3HtcHdHuDJ7b8BxtI3a7OEBXKMQ7NLuXHUxxiZOISGHd_osvTwkQhyq0T6iKrbdQGXQE3OnrHfi7ANN_gvAge0N0Gl8TbfWtShZFk2ts9HOzBeAs3Np13DjKmkZJ3sq9n1SjKrGUKcN_AWWfHVuWk-VGeLTbWh1bqfFU9SKfa6aU-TkBe_kp8VG7RHCR5e9W1ZVe3ar9JLubFE9WLp2vigaS1UUYuMUUDzyY9HTHmmjqaTddUDQO4IVV-dWLYzA"/>
+<div>
+<div class="text-teal-500 font-bold text-sm tracking-widest uppercase">INSTITUTIONAL</div>
+<div class="text-xs text-on-surface-variant">Direct Access</div>
+</div>
+</div>
+</div>
+<div class="flex-1 px-3 space-y-1">
+<a class="flex items-center gap-3 px-3 py-2 text-neutral-500 hover:bg-neutral-900 rounded-DEFAULT font-sans text-sm font-medium hover:text-neutral-200 transition-all duration-200-ease-in-out" href="#">
+<span class="material-symbols-outlined text-lg">dashboard</span>
+                Command
+            </a>
+<a class="flex items-center gap-3 px-3 py-2 text-neutral-500 hover:bg-neutral-900 rounded-DEFAULT font-sans text-sm font-medium hover:text-neutral-200 transition-all duration-200-ease-in-out" href="#">
+<span class="material-symbols-outlined text-lg">analytics</span>
+                Portfolio
+            </a>
+<a class="flex items-center gap-3 px-3 py-2 text-neutral-500 hover:bg-neutral-900 rounded-DEFAULT font-sans text-sm font-medium hover:text-neutral-200 transition-all duration-200-ease-in-out" href="#">
+<span class="material-symbols-outlined text-lg">query_stats</span>
+                Signals
+            </a>
+<a class="flex items-center gap-3 px-3 py-2 bg-neutral-800 text-teal-400 border-l-4 border-teal-500 rounded-r-DEFAULT font-sans text-sm font-medium transition-all duration-200-ease-in-out" href="#">
+<span class="material-symbols-outlined text-lg">security</span>
+                Risk
+            </a>
+<a class="flex items-center gap-3 px-3 py-2 text-neutral-500 hover:bg-neutral-900 rounded-DEFAULT font-sans text-sm font-medium hover:text-neutral-200 transition-all duration-200-ease-in-out" href="#">
+<span class="material-symbols-outlined text-lg">menu_book</span>
+                Journal
+            </a>
+<a class="flex items-center gap-3 px-3 py-2 text-neutral-500 hover:bg-neutral-900 rounded-DEFAULT font-sans text-sm font-medium hover:text-neutral-200 transition-all duration-200-ease-in-out" href="#">
+<span class="material-symbols-outlined text-lg">settings</span>
+                Settings
+            </a>
+</div>
+<div class="mt-auto px-3 space-y-1">
+<a class="flex items-center gap-3 px-3 py-2 text-neutral-500 hover:bg-neutral-900 rounded-DEFAULT font-sans text-sm font-medium hover:text-neutral-200 transition-all duration-200-ease-in-out" href="#">
+<span class="material-symbols-outlined text-lg">help_outline</span>
+                Support
+            </a>
+<a class="flex items-center gap-3 px-3 py-2 text-neutral-500 hover:bg-neutral-900 rounded-DEFAULT font-sans text-sm font-medium hover:text-neutral-200 transition-all duration-200-ease-in-out" href="#">
+<span class="material-symbols-outlined text-lg">terminal</span>
+                Logs
+            </a>
+</div>
+</nav>
+<!-- Main Content Area -->
+<div class="flex-1 flex flex-col md:ml-64 w-full h-full relative">
+<!-- TopNavBar (WEB/MOBILE) -->
+<header class="flex justify-between items-center w-full px-6 h-14 bg-neutral-900 docked full-width top-0 border-b border-neutral-800/20 tonal-transition-bg flat-no-shadows z-10 shrink-0">
+<div class="flex items-center gap-6">
+<!-- Mobile Menu Trigger (hidden on md) -->
+<button class="md:hidden text-on-surface hover:text-primary transition-colors">
+<span class="material-symbols-outlined">menu</span>
+</button>
+<div class="text-lg font-black tracking-tighter text-teal-500">KINETIC LEDGER</div>
+<!-- Horizontal Nav for Mobile (Only visible on small screens to replace sidebar, but specific to instructions 'prohibit top-row text links on mobile', so we hide it here and rely on sidebar logic as requested, assuming web view prioritised) -->
+<nav class="hidden md:flex items-center gap-4 ml-8">
+<!-- Skipping top links as per SideNav inclusion, but adding structural placeholder if needed -->
+</nav>
+</div>
+<div class="flex items-center gap-4">
+<button class="text-neutral-500 hover:text-neutral-300 hover:bg-neutral-800/50 transition-colors rounded-DEFAULT p-1.5 scale-95-active">
+<span class="material-symbols-outlined text-xl">notifications</span>
+</button>
+<button class="text-neutral-500 hover:text-neutral-300 hover:bg-neutral-800/50 transition-colors rounded-DEFAULT p-1.5 scale-95-active">
+<span class="material-symbols-outlined text-xl">account_balance_wallet</span>
+</button>
+<img alt="Trader Profile" class="w-8 h-8 rounded-DEFAULT object-cover border border-outline-variant/20 ml-2" data-alt="Close up portrait of a professional male in a dimly lit office setting, sharp focus, cinematic lighting" src="https://lh3.googleusercontent.com/aida-public/AB6AXuCHTCGAhjCZuQqz8PtrfLyvFQJ6vLg5XGFVjP-TslL34pzCGc7VwgOlrfGyCSu5dyCx18FFWoN9otwRhnqrW-35AFOWtO28dTDUx3xzLo6yklC2ohdBjgRNgn0E8e0rTWhiglOthBW3ePnP4HeZQFsO6CWlKVaxYE_N_R5P57JtVLRENB-SBRlV458V4qBEwqRkvgJu4PArvBdmfk4aZHWHSXd7r4cyIk9gCuPYLJr0OrP25QLjqEpoNTkxaxX5Aqqb6hAqxsT4Dg"/>
+</div>
+</header>
+<!-- Main Canvas -->
+<main class="flex-1 overflow-y-auto p-6 md:p-8 space-y-6">
+<div class="flex justify-between items-end mb-8">
+<div>
+<h1 class="font-headline text-[2rem] font-bold tracking-tight text-on-surface leading-none mb-2">Risk Management</h1>
+<p class="font-label text-[0.6875rem] text-on-surface-variant uppercase tracking-wider">Live Portfolio Exposure Analysis</p>
+</div>
+<div class="flex items-center gap-3">
+<div class="flex items-center gap-2 bg-surface-container px-3 py-1.5 rounded-DEFAULT">
+<div class="w-2 h-2 rounded-full bg-secondary"></div>
+<span class="font-mono text-xs text-on-surface">SYS_ONLINE</span>
+</div>
+</div>
+</div>
+<!-- Bento Grid Layout -->
+<div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+<!-- Top: Portfolio Heat Gauge -->
+<div class="lg:col-span-8 bg-surface-container rounded-DEFAULT p-6 relative overflow-hidden flex flex-col justify-center items-center min-h-[300px]">
+<div class="absolute top-4 left-4">
+<span class="font-label text-[0.6875rem] text-on-surface-variant uppercase tracking-wider">Portfolio Heat</span>
+</div>
+<!-- Abstract Radial Gauge using CSS -->
+<div class="relative w-48 h-48 mt-4">
+<!-- Background Circle -->
+<svg class="w-full h-full transform -rotate-90" viewbox="0 0 100 100">
+<circle class="text-surface-container-highest" cx="50" cy="50" fill="transparent" r="45" stroke="currentColor" stroke-width="2"></circle>
+<!-- Progress Arc (Simulating 82% - into Crimson Zone) -->
+<circle class="text-tertiary transition-all duration-1000 ease-out" cx="50" cy="50" fill="transparent" r="45" stroke="currentColor" stroke-dasharray="283" stroke-dashoffset="50" stroke-width="4"></circle>
+</svg>
+<!-- Center Data -->
+<div class="absolute inset-0 flex flex-col items-center justify-center">
+<span class="font-mono text-4xl text-tertiary font-bold tracking-tighter">82<span class="text-xl">%</span></span>
+<span class="font-label text-[0.6875rem] text-tertiary uppercase mt-1">High Exposure</span>
+</div>
+</div>
+<div class="w-full flex justify-between mt-8 border-t border-outline-variant/20 pt-4 px-4">
+<div class="text-center">
+<div class="font-label text-[0.6875rem] text-on-surface-variant uppercase">Margin Usage</div>
+<div class="font-mono text-sm text-on-surface mt-1">64.2%</div>
+</div>
+<div class="text-center">
+<div class="font-label text-[0.6875rem] text-on-surface-variant uppercase">Leverage</div>
+<div class="font-mono text-sm text-on-surface mt-1">3.2x</div>
+</div>
+<div class="text-center">
+<div class="font-label text-[0.6875rem] text-on-surface-variant uppercase">Liquidity</div>
+<div class="font-mono text-sm text-tertiary mt-1">$1.2M</div>
+</div>
+</div>
+</div>
+<!-- Scenario Simulator -->
+<div class="lg:col-span-4 bg-surface-container rounded-DEFAULT p-6 flex flex-col h-full">
+<div class="flex items-center gap-2 mb-6">
+<span class="material-symbols-outlined text-primary text-sm">science</span>
+<span class="font-label text-[0.6875rem] text-on-surface-variant uppercase tracking-wider">Scenario Simulator</span>
+</div>
+<div class="space-y-4 flex-1">
+<div class="bg-surface-container-high p-4 rounded-DEFAULT">
+<div class="font-label text-[0.6875rem] text-on-surface-variant mb-2">IF INDEX DROPS</div>
+<div class="flex items-baseline gap-2 mb-4">
+<span class="font-mono text-2xl text-tertiary">IHSG -5.0%</span>
+</div>
+<div class="border-t border-outline-variant/20 pt-3 mt-3">
+<div class="font-label text-[0.6875rem] text-on-surface-variant mb-1">PORTFOLIO IMPACT</div>
+<div class="font-mono text-xl text-tertiary">- $845,200</div>
+<div class="font-mono text-xs text-on-surface-variant mt-1">(-3.8% Total AUM)</div>
+</div>
+</div>
+<div class="bg-surface-container-low p-4 rounded-DEFAULT border-l-2 border-primary">
+<div class="font-label text-[0.6875rem] text-on-surface-variant mb-1">RECOMMENDED ACTION</div>
+<div class="font-sans text-sm text-on-surface">Hedge required. Consider SPX puts at next resistance level.</div>
+</div>
+</div>
+</div>
+<!-- Metrics Cards -->
+<div class="lg:col-span-3 bg-surface-container rounded-DEFAULT p-5">
+<span class="font-label text-[0.6875rem] text-on-surface-variant uppercase tracking-wider block mb-4">Daily Loss Limit</span>
+<div class="font-mono text-2xl text-tertiary mb-2">-$124.5K</div>
+<div class="w-full bg-surface-container-lowest h-1.5 rounded-full overflow-hidden">
+<div class="bg-tertiary h-full w-[75%]"></div>
+</div>
+<div class="flex justify-between mt-2 font-mono text-[0.6875rem] text-on-surface-variant">
+<span>Current</span>
+<span>Limit: $150K</span>
+</div>
+</div>
+<div class="lg:col-span-3 bg-surface-container rounded-DEFAULT p-5">
+<span class="font-label text-[0.6875rem] text-on-surface-variant uppercase tracking-wider block mb-4">Max Drawdown</span>
+<div class="font-mono text-2xl text-on-surface mb-1">-4.2%</div>
+<div class="font-mono text-xs text-on-surface-variant">YTD Peak-to-Trough</div>
+<div class="mt-4 flex items-center gap-2">
+<span class="material-symbols-outlined text-secondary text-sm">trending_up</span>
+<span class="font-sans text-xs text-secondary">Recovering (+1.1% this wk)</span>
+</div>
+</div>
+<div class="lg:col-span-3 bg-surface-container rounded-DEFAULT p-5">
+<span class="font-label text-[0.6875rem] text-on-surface-variant uppercase tracking-wider block mb-4">Circuit Breakers</span>
+<div class="space-y-3">
+<div class="flex items-center justify-between">
+<span class="font-sans text-xs text-on-surface">Alpha Strategy</span>
+<div class="flex items-center gap-1.5">
+<div class="w-1.5 h-1.5 rounded-full bg-secondary"></div>
+<span class="font-mono text-[0.6875rem] text-on-surface-variant">ACTIVE</span>
+</div>
+</div>
+<div class="flex items-center justify-between">
+<span class="font-sans text-xs text-on-surface">Gamma Scalp</span>
+<div class="flex items-center gap-1.5">
+<div class="w-1.5 h-1.5 rounded-full bg-tertiary animate-pulse"></div>
+<span class="font-mono text-[0.6875rem] text-tertiary">HALTED</span>
+</div>
+</div>
+<div class="flex items-center justify-between">
+<span class="font-sans text-xs text-on-surface">Vol Arbotrage</span>
+<div class="flex items-center gap-1.5">
+<div class="w-1.5 h-1.5 rounded-full bg-secondary"></div>
+<span class="font-mono text-[0.6875rem] text-on-surface-variant">ACTIVE</span>
+</div>
+</div>
+</div>
+</div>
+<div class="lg:col-span-3 bg-surface-container rounded-DEFAULT p-5">
+<span class="font-label text-[0.6875rem] text-on-surface-variant uppercase tracking-wider block mb-4">Stress Test</span>
+<div class="font-mono text-2xl text-on-surface mb-1">PASS</div>
+<div class="font-mono text-xs text-on-surface-variant mb-4">Last run: 08:00 EST</div>
+<button class="w-full bg-surface-container-high hover:bg-surface-bright text-on-surface font-sans text-xs font-medium py-2 rounded-DEFAULT transition-colors border-b border-outline-variant/20 flex items-center justify-center gap-2">
+<span class="material-symbols-outlined text-sm">play_arrow</span>
+                        Run Diagnostics
+                    </button>
+</div>
+</div>
+</main>
+</div>
+</body></html>

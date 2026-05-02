@@ -82,59 +82,59 @@ def validate_config(config: dict) -> list:
 
         if val is None:
             if required:
-                issues.append(f"🔴 MISSING: `{path}` is required but not found in config.json")
+                issues.append(f"MISSING: `{path}` is required but not found in config.json")
             continue
 
         # Type check (allow int for float fields)
         if expected_type == float and isinstance(val, int):
             val = float(val)
         if not isinstance(val, expected_type):
-            issues.append(f"🟡 TYPE: `{path}` should be {expected_type.__name__}, got {type(val).__name__}")
+            issues.append(f"TYPE: `{path}` should be {expected_type.__name__}, got {type(val).__name__}")
             continue
 
         # Range check
         if val < min_val:
-            issues.append(f"🟡 RANGE: `{path}` = {val} is below minimum ({min_val})")
+            issues.append(f"RANGE: `{path}` = {val} is below minimum ({min_val})")
         if val > max_val:
-            issues.append(f"🟡 RANGE: `{path}` = {val} is above maximum ({max_val})")
+            issues.append(f"RANGE: `{path}` = {val} is above maximum ({max_val})")
 
     # ── 2. Cross-field validations ──
     # ma_short should be < ma_long
     ma_short = _get_nested(config, "indicators.ma_short")
     ma_long = _get_nested(config, "indicators.ma_long")
     if ma_short and ma_long and ma_short >= ma_long:
-        issues.append(f"🔴 LOGIC: ma_short ({ma_short}) must be < ma_long ({ma_long})")
+        issues.append(f"LOGIC: ma_short ({ma_short}) must be < ma_long ({ma_long})")
 
     # Conviction weights should sum to ~1.0
     weights = config.get("conviction_weights", {})
     total = sum(weights.values())
     if abs(total - 1.0) > 0.05:
-        issues.append(f"🟡 WEIGHTS: conviction_weights sum to {total:.2f}, expected ~1.0")
+        issues.append(f"WEIGHTS: conviction_weights sum to {total:.2f}, expected ~1.0")
 
     # Threshold ordering
     auto = _get_nested(config, "execution.auto_trade_threshold") or 0
     alert = _get_nested(config, "execution.alert_only_threshold") or 0
     if alert >= auto:
-        issues.append(f"🟡 LOGIC: alert_only_threshold ({alert}) should be < auto_trade_threshold ({auto})")
+        issues.append(f"LOGIC: alert_only_threshold ({alert}) should be < auto_trade_threshold ({auto})")
 
     # ── 3. Stock list check ──
     stocks = config.get("stocks", [])
     if not stocks:
-        issues.append("🔴 MISSING: `stocks` list is empty — nothing to scan")
+        issues.append("MISSING: `stocks` list is empty — nothing to scan")
     elif len(stocks) < 3:
-        issues.append(f"🟡 LOW: Only {len(stocks)} stocks in watchlist — consider adding more")
+        issues.append(f"LOW: Only {len(stocks)} stocks in watchlist — consider adding more")
 
     # ── 4. Sector mapping coverage ──
     sectors = config.get("sectors", {})
     unmapped = [s for s in stocks if s not in sectors]
     if unmapped:
-        issues.append(f"🟡 SECTORS: {len(unmapped)} stocks have no sector mapping: {unmapped[:5]}...")
+        issues.append(f"SECTORS: {len(unmapped)} stocks have no sector mapping: {unmapped[:5]}...")
 
     # ── 5. License Validation ──
     commercial = config.get("commercial", {})
     license_key = commercial.get("license_key", "")
     if not license_key or "YOUR_LICENSE" in license_key:
-        issues.append("🔴 LICENSE: Invalid or missing commercial license_key. Please update config.json.")
+        issues.append("LICENSE: Invalid or missing commercial license_key. Please update config.json.")
 
     # Log results
     if issues:

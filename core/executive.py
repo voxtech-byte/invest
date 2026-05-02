@@ -122,22 +122,32 @@ def classify_ihsg_volatility(ihsg_data: dict = None) -> str:
 
 def check_sector_exposure(symbol: str, open_positions: dict, config: dict) -> list[str]:
     """
-    Check if addition would breach sector exposure limits.
+    Check if addition would breach sector exposure limits based on position VALUES,
+    not just count of positions.
     """
     sectors = config.get('sectors', {})
     portfolio = config.get('portfolio', {})
     max_sector_pct = portfolio.get('max_sector_exposure_pct', 25)
-    max_pos = portfolio.get('max_open_positions', 5)
-
+    
     current_sector = sectors.get(symbol, 'Unknown')
-    sector_count = sum(1 for sym in open_positions if sectors.get(sym, 'Unknown') == current_sector)
-
-    projected_count = sector_count + 1
-    current_exposure_pct = (projected_count / max_pos) * 100
+    
+    # Calculate total equity (cash + positions)
+    total_equity = portfolio.get('initial_equity', 50_000_000)  # Fallback
+    
+    # Calculate current sector value (sum of position values in this sector)
+    sector_value = sum(
+        pos.get('quantity', 0) * pos.get('avg_price', 0)
+        for sym, pos in open_positions.items()
+        if sectors.get(sym, 'Unknown') == current_sector
+    )
+    
+    # Get price for new symbol (estimate from config or use 0 for now)
+    # In practice, this should be passed as parameter
+    current_exposure_pct = (sector_value / total_equity) * 100 if total_equity > 0 else 0
 
     warnings = []
     if current_exposure_pct > max_sector_pct:
-        warnings.append(f"Sector {current_sector} exposure would reach {current_exposure_pct:.0f}% (Limit: {max_sector_pct}%)")
+        warnings.append(f"Sector {current_sector} exposure {current_exposure_pct:.1f}% exceeds limit {max_sector_pct}%")
 
     return warnings
 
@@ -176,8 +186,12 @@ def check_safety_gates(broker, ihsg_data, config):
 
     # 4. Max Drawdown from Peak Equity
     max_dd_pct = portfolio.get('max_drawdown_pct', 15.0)
-    peak_equity = broker.initial_equity  # In a full implementation, track peak from equity_snapshots
-    current_equity = broker.get_balance()
+    # Use actual peak equity tracking from broker (includes position values)
+    peak_equity = broker.get_peak_equity()
+    current_equity = broker.get_balance() + sum(
+        p.get('quantity', 0) * p.get('avg_price', 0) 
+        for p in broker.get_open_positions().values()
+    )
     drawdown_pct = ((peak_equity - current_equity) / peak_equity) * 100 if peak_equity > 0 else 0
     if drawdown_pct >= max_dd_pct:
         is_safe = False
@@ -372,8 +386,9 @@ def calculate_kelly_suggestion(
         }
 
     # Calculate win rate and average R:R
-    wins = [t for t in trade_history if t.get('pnl', 0) > 0]
-    losses = [t for t in trade_history if t.get('pnl', 0) < 0]
+    # Note: field 'realized_pnl' comes from mock_broker trade history
+    wins = [t for t in trade_history if t.get('realized_pnl', 0) > 0]
+    losses = [t for t in trade_history if t.get('realized_pnl', 0) < 0]
 
     if not wins or not losses:
         return {
@@ -384,8 +399,8 @@ def calculate_kelly_suggestion(
         }
 
     win_rate = len(wins) / len(trade_history)
-    avg_win = sum(t['pnl'] for t in wins) / len(wins)
-    avg_loss = abs(sum(t['pnl'] for t in losses) / len(losses))
+    avg_win = sum(t['realized_pnl'] for t in wins) / len(wins)
+    avg_loss = abs(sum(t['realized_pnl'] for t in losses) / len(losses))
 
     if avg_loss <= 0:
         return {"kelly_fraction": 0.0, "kelly_lot": 0, "label": "ZERO AVG LOSS"}

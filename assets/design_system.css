@@ -1,0 +1,992 @@
+/*
+ * ══════════════════════════════════════════════════════════════
+ * KINETIC LEDGER — Design System CSS
+ * Sovereign Quant Terminal V15 → Institutional Trading UI
+ * ══════════════════════════════════════════════════════════════
+ *
+ * Creative North Star: "The Kinetic Ledger"
+ * - Atmospheric Authority over consumer friendliness
+ * - Tonal depth over drop shadows
+ * - Precision over decoration
+ * - Zero emoji in UI
+ *
+ * Color System: Material 3 Dark Theme
+ * Typography: Inter (UI) + Monospace (Data)
+ * Borders: Ghost borders (outline-variant @ 20% opacity)
+ * Elevation: Tonal layering, no box-shadow
+ * Border Radius: 4px default (2px for lightweight)
+ */
+
+/* ═══════════════════════════════════════════════════════════════
+   1. FONTS
+   ═══════════════════════════════════════════════════════════════ */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap');
+
+/* ═══════════════════════════════════════════════════════════════
+   2. CSS CUSTOM PROPERTIES (Design Tokens)
+   ═══════════════════════════════════════════════════════════════ */
+:root {
+    /* ── Surface Hierarchy ── */
+    --surface-lowest:         #0e0e0e;
+    --surface-dim:            #131313;
+    --surface:                #131313;
+    --background:             #131313;
+    --surface-container-low:  #1b1b1c;
+    --surface-container:      #202020;
+    --surface-container-high: #2a2a2a;
+    --surface-container-highest: #353535;
+    --surface-variant:        #353535;
+    --surface-bright:         #393939;
+
+    /* ── Semantic Colors ── */
+    --primary:                #66d9cc;  /* Teal — focus, interactive */
+    --primary-container:      #26a69a;  /* Teal container — buttons */
+    --primary-fixed:          #84f5e8;
+    --primary-fixed-dim:      #66d9cc;
+    --on-primary:             #003732;
+    --on-primary-container:   #003430;
+    --on-primary-fixed:       #00201d;
+
+    --secondary:              #88d982;  /* Emerald — profit, bullish */
+    --secondary-container:    #005b14;
+    --on-secondary:           #003909;
+    --on-secondary-container: #81d27c;
+
+    --tertiary:               #ffb3ac;  /* Crimson — risk, bearish */
+    --tertiary-container:     #ff5e56;
+    --on-tertiary:            #680008;
+    --on-tertiary-container:  #630007;
+    --error:                  #ffb4ab;
+    --error-container:        #93000a;
+
+    /* ── Text Colors ── */
+    --on-surface:             #e5e2e1;
+    --on-surface-variant:     #bcc9c6;
+    --on-background:          #e5e2e1;
+    --outline:                #869391;
+    --outline-variant:        #3d4947;
+
+    /* ── Inverse ── */
+    --inverse-surface:        #e5e2e1;
+    --inverse-on-surface:     #303030;
+    --inverse-primary:        #006a62;
+
+    /* ── Typography ── */
+    --font-headline:  'Inter', sans-serif;
+    --font-body:      'Inter', sans-serif;
+    --font-label:     'Inter', sans-serif;
+    --font-mono:      ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+
+    /* ── Sizing ── */
+    --radius-default: 2px;
+    --radius-lg:      4px;
+    --radius-xl:      8px;
+    --radius-full:    12px;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   3. BASE RESET — Streamlit Overrides
+   ═══════════════════════════════════════════════════════════════ */
+
+/* Main app container */
+[data-testid="stAppViewContainer"] {
+    background-color: var(--background) !important;
+    color: var(--on-surface) !important;
+    font-family: var(--font-body) !important;
+}
+
+[data-testid="stHeader"] {
+    background-color: var(--surface-container-low) !important;
+    border-bottom: 1px solid rgba(61, 73, 71, 0.2) !important;
+}
+
+/* Hide Streamlit default header */
+header[data-testid="stHeader"] {
+    display: none !important;
+}
+
+/* Sidebar overrides */
+[data-testid="stSidebar"] {
+    background-color: var(--surface-lowest) !important;
+    border-right: 1px solid rgba(61, 73, 71, 0.2) !important;
+    min-width: 220px !important;
+    max-width: 240px !important;
+}
+
+[data-testid="stSidebar"] > div {
+    background-color: var(--surface-lowest) !important;
+    padding: 0 !important;
+}
+
+/* Sidebar inner content padding */
+[data-testid="stSidebar"] section[data-testid="stSidebarContent"] {
+    padding: 0 !important;
+}
+
+/* Remove default Streamlit sidebar top padding */
+[data-testid="stSidebar"] .block-container {
+    padding-top: 0 !important;
+    padding-left: 0 !important;
+    padding-right: 0 !important;
+}
+
+/* Sidebar column layout for icon + button */
+[data-testid="stSidebar"] [data-testid="stHorizontalBlock"] {
+    gap: 0 !important;
+    align-items: center !important;
+}
+
+/* Sidebar nav button base */
+[data-testid="stSidebar"] .stButton > button {
+    background: transparent !important;
+    border: none !important;
+    border-left: 3px solid transparent !important;
+    border-radius: 0 4px 4px 0 !important;
+    color: #737373 !important;
+    font-family: 'Inter', sans-serif !important;
+    font-size: 0.875rem !important;
+    font-weight: 500 !important;
+    text-align: left !important;
+    padding: 0.5rem 0.75rem !important;
+    min-height: 40px !important;
+    width: 100% !important;
+    justify-content: flex-start !important;
+    transition: background-color 0.15s ease, color 0.15s ease !important;
+    box-shadow: none !important;
+}
+
+[data-testid="stSidebar"] .stButton > button:hover {
+    background: #171717 !important;
+    color: #e5e2e1 !important;
+    border-left-color: rgba(61, 73, 71, 0.4) !important;
+}
+
+/* Active nav item */
+[data-testid="stSidebar"] .stButton > button[kind="primary"] {
+    background: #1e2e2c !important;
+    color: #66d9cc !important;
+    border-left: 3px solid #66d9cc !important;
+    font-weight: 600 !important;
+}
+
+[data-testid="stSidebar"] .stButton > button[kind="primary"]:hover {
+    background: #243533 !important;
+}
+
+/* Main content area */
+.main .block-container {
+    padding-top: 1rem !important;
+    max-width: 100% !important;
+}
+
+/* Tab container */
+[data-testid="stTabs"] {
+    background-color: transparent !important;
+}
+
+button[data-baseweb="tab"] {
+    font-family: var(--font-mono) !important;
+    font-size: 0.7rem !important;
+    text-transform: uppercase !important;
+    letter-spacing: 0.05em !important;
+    color: var(--on-surface-variant) !important;
+    background-color: transparent !important;
+    border: none !important;
+    padding: 0.5rem 1rem !important;
+}
+
+button[data-baseweb="tab"][aria-selected="true"] {
+    color: var(--primary) !important;
+    border-bottom: 2px solid var(--primary) !important;
+}
+
+/* Streamlit metrics */
+[data-testid="stMetricValue"] {
+    font-family: var(--font-mono) !important;
+    color: var(--on-surface) !important;
+}
+
+[data-testid="stMetricLabel"] {
+    font-family: var(--font-label) !important;
+    font-size: 0.6875rem !important;
+    text-transform: uppercase !important;
+    letter-spacing: 0.1em !important;
+    color: var(--on-surface-variant) !important;
+}
+
+/* Streamlit buttons */
+.stButton > button {
+    font-family: var(--font-body) !important;
+    font-size: 0.8rem !important;
+    font-weight: 500 !important;
+    border-radius: var(--radius-lg) !important;
+    min-height: 32px !important;
+    transition: background-color 0.2s ease, color 0.2s ease !important;
+    border: none !important;
+    box-shadow: none !important;
+}
+
+.stButton > button[kind="primary"],
+.stButton > button[data-testid="stFormSubmitButton"] {
+    background-color: var(--primary-container) !important;
+    color: var(--on-primary-container) !important;
+}
+
+.stButton > button[kind="primary"]:hover {
+    background-color: var(--primary-fixed) !important;
+}
+
+.stButton > button[kind="secondary"] {
+    background-color: var(--surface-container-high) !important;
+    color: var(--on-surface) !important;
+    border: 1px solid rgba(61, 73, 71, 0.2) !important;
+}
+
+.stButton > button[kind="secondary"]:hover {
+    background-color: var(--surface-bright) !important;
+}
+
+/* Streamlit inputs */
+.stTextInput > div > div > input,
+.stSelectbox > div > div,
+.stMultiSelect > div > div {
+    background-color: var(--surface-container-highest) !important;
+    color: var(--on-surface) !important;
+    border: none !important;
+    border-bottom: 1px solid rgba(61, 73, 71, 0.2) !important;
+    border-radius: var(--radius-lg) var(--radius-lg) 0 0 !important;
+    font-family: var(--font-mono) !important;
+    font-size: 0.85rem !important;
+    transition: border-bottom-color 0.2s ease !important;
+}
+
+.stTextInput > div > div > input:focus {
+    border-bottom-color: var(--primary) !important;
+    box-shadow: none !important;
+}
+
+/* Streamlit sliders */
+.stSlider > div > div > div > div {
+    background-color: var(--primary-container) !important;
+}
+
+/* Streamlit expander */
+[data-testid="stExpander"] {
+    background-color: var(--surface-container) !important;
+    border: 1px solid rgba(61, 73, 71, 0.2) !important;
+    border-radius: var(--radius-lg) !important;
+}
+
+/* Streamlit dataframe */
+[data-testid="stDataFrame"] {
+    border: 1px solid rgba(61, 73, 71, 0.2) !important;
+    border-radius: var(--radius-lg) !important;
+}
+
+/* Dividers */
+hr {
+    border-color: rgba(61, 73, 71, 0.2) !important;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   4. TYPOGRAPHY SYSTEM
+   ═══════════════════════════════════════════════════════════════ */
+h1, h2, h3, h4, h5, h6 {
+    font-family: var(--font-headline) !important;
+    color: var(--on-surface) !important;
+    letter-spacing: -0.02em !important;
+}
+
+.kl-headline-lg {
+    font-family: var(--font-headline);
+    font-size: 2rem;
+    font-weight: 700;
+    line-height: 1;
+    letter-spacing: -0.02em;
+    color: var(--on-surface);
+}
+
+.kl-headline-md {
+    font-family: var(--font-headline);
+    font-size: 1.25rem;
+    font-weight: 700;
+    color: var(--on-surface);
+}
+
+.kl-headline-sm {
+    font-family: var(--font-headline);
+    font-size: 0.875rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--on-surface);
+}
+
+.kl-body-md {
+    font-family: var(--font-body);
+    font-size: 0.875rem;
+    font-weight: 400;
+    color: var(--on-surface);
+    line-height: 1.5;
+}
+
+.kl-body-sm {
+    font-family: var(--font-body);
+    font-size: 0.8rem;
+    font-weight: 400;
+    color: var(--on-surface-variant);
+}
+
+.kl-label-sm {
+    font-family: var(--font-label);
+    font-size: 0.6875rem;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--on-surface-variant);
+}
+
+.kl-label-xs {
+    font-family: var(--font-label);
+    font-size: 0.625rem;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--on-surface-variant);
+}
+
+.kl-mono {
+    font-family: var(--font-mono);
+}
+
+.kl-mono-lg {
+    font-family: var(--font-mono);
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: var(--on-surface);
+}
+
+.kl-mono-md {
+    font-family: var(--font-mono);
+    font-size: 0.875rem;
+    color: var(--on-surface);
+}
+
+.kl-mono-sm {
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    color: var(--on-surface-variant);
+}
+
+.kl-mono-xs {
+    font-family: var(--font-mono);
+    font-size: 0.625rem;
+    color: var(--on-surface-variant);
+    letter-spacing: 0.05em;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   5. SURFACE & CARD SYSTEM
+   ═══════════════════════════════════════════════════════════════ */
+.kl-card {
+    background-color: var(--surface-container);
+    border: 1px solid rgba(61, 73, 71, 0.2);
+    border-radius: var(--radius-lg);
+    padding: 1.25rem;
+    transition: background-color 0.2s ease;
+}
+
+.kl-card:hover {
+    background-color: var(--surface-container-high);
+}
+
+.kl-card-elevated {
+    background-color: var(--surface-container-high);
+    border: 1px solid rgba(61, 73, 71, 0.2);
+    border-radius: var(--radius-lg);
+    padding: 1.25rem;
+}
+
+.kl-card-inset {
+    background-color: var(--surface-lowest);
+    border: 1px solid rgba(61, 73, 71, 0.1);
+    border-radius: var(--radius-lg);
+    padding: 1rem;
+}
+
+.kl-surface-well {
+    background-color: var(--surface-lowest);
+    border-radius: var(--radius-lg);
+    padding: 1rem;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   6. GHOST BORDER UTILITIES
+   ═══════════════════════════════════════════════════════════════ */
+.ghost-border {
+    border: 1px solid rgba(61, 73, 71, 0.2);
+}
+
+.ghost-border-b {
+    border-bottom: 1px solid rgba(61, 73, 71, 0.2);
+}
+
+.ghost-border-t {
+    border-top: 1px solid rgba(61, 73, 71, 0.2);
+}
+
+.ghost-border-l {
+    border-left: 1px solid rgba(61, 73, 71, 0.2);
+}
+
+.ghost-border-r {
+    border-right: 1px solid rgba(61, 73, 71, 0.2);
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   7. KINETIC TABLE (The Ledger)
+   ═══════════════════════════════════════════════════════════════ */
+.kinetic-table {
+    width: 100%;
+    border-collapse: collapse;
+    text-align: left;
+    font-family: var(--font-mono);
+    font-size: 0.8rem;
+}
+
+.kinetic-table thead tr {
+    background-color: var(--surface-container);
+    font-size: 0.625rem;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--on-surface-variant);
+}
+
+.kinetic-table thead th {
+    font-weight: 400;
+    padding: 0.5rem 1rem;
+    cursor: pointer;
+}
+
+.kinetic-table thead th:hover {
+    color: var(--on-surface);
+}
+
+/* Zebra striping — tonal depth */
+.kinetic-table tbody tr:nth-child(even) {
+    background-color: var(--surface-container-low);
+}
+
+.kinetic-table tbody tr:nth-child(odd) {
+    background-color: var(--surface-container-high);
+}
+
+.kinetic-table tbody tr:hover {
+    background-color: var(--surface-container-highest) !important;
+    transition: background-color 0.15s ease;
+}
+
+.kinetic-table tbody td {
+    padding: 0.5rem 1rem;
+    color: var(--on-surface);
+    vertical-align: middle;
+}
+
+/* Cell color semantics */
+.kinetic-table .cell-profit { color: var(--secondary); }
+.kinetic-table .cell-loss   { color: var(--tertiary); }
+.kinetic-table .cell-neutral { color: var(--on-surface); }
+.kinetic-table .cell-muted  { color: var(--on-surface-variant); }
+.kinetic-table .cell-primary { color: var(--primary); font-weight: 700; }
+.kinetic-table .cell-buy    { color: var(--secondary); }
+.kinetic-table .cell-sell   { color: var(--tertiary); }
+.kinetic-table .cell-right  { text-align: right; }
+.kinetic-table .cell-center { text-align: center; }
+
+/* ═══════════════════════════════════════════════════════════════
+   8. METRIC CARD
+   ═══════════════════════════════════════════════════════════════ */
+.kl-metric {
+    background-color: var(--surface-container);
+    border: 1px solid rgba(61, 73, 71, 0.2);
+    border-radius: var(--radius-lg);
+    padding: 1.25rem;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    min-height: 7rem;
+    position: relative;
+    overflow: hidden;
+}
+
+.kl-metric-label {
+    font-family: var(--font-label);
+    font-size: 0.6875rem;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--on-surface-variant);
+}
+
+.kl-metric-value {
+    font-family: var(--font-mono);
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: var(--on-surface);
+    margin-top: 0.5rem;
+}
+
+.kl-metric-value.profit  { color: var(--secondary); }
+.kl-metric-value.loss    { color: var(--tertiary); }
+.kl-metric-value.primary { color: var(--primary); }
+
+.kl-metric-icon {
+    position: absolute;
+    right: 0;
+    bottom: 0;
+    padding: 0.75rem;
+    opacity: 0.15;
+    font-size: 3rem;
+    color: var(--on-surface-variant);
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   9. STATUS INDICATOR
+   ═══════════════════════════════════════════════════════════════ */
+.kl-status {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.kl-status-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+
+.kl-status-dot.online  { background-color: var(--secondary); box-shadow: 0 0 8px rgba(136, 217, 130, 0.4); }
+.kl-status-dot.warning { background-color: var(--tertiary);  box-shadow: 0 0 8px rgba(255, 179, 172, 0.4); }
+.kl-status-dot.offline { background-color: var(--outline);   }
+.kl-status-dot.syncing { background-color: var(--primary);   animation: kl-pulse 2s ease-in-out infinite; }
+
+.kl-status-label {
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    color: var(--on-surface);
+}
+
+.kl-status-meta {
+    font-family: var(--font-mono);
+    font-size: 0.625rem;
+    color: var(--on-surface-variant);
+}
+
+@keyframes kl-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   10. BUTTON SYSTEM
+   ═══════════════════════════════════════════════════════════════ */
+.kl-btn {
+    font-family: var(--font-body);
+    font-size: 0.8rem;
+    font-weight: 500;
+    border-radius: var(--radius-lg);
+    min-height: 32px;
+    padding: 0.375rem 1rem;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    transition: background-color 0.2s ease, color 0.2s ease;
+    border: none;
+    outline: none;
+    text-decoration: none;
+}
+
+.kl-btn:active {
+    transform: scale(0.98);
+}
+
+.kl-btn-primary {
+    background-color: var(--primary-container);
+    color: var(--on-primary-container);
+}
+
+.kl-btn-primary:hover {
+    background-color: var(--primary-fixed);
+}
+
+.kl-btn-secondary {
+    background-color: var(--surface-container-high);
+    color: var(--on-surface);
+    border: 1px solid rgba(61, 73, 71, 0.2);
+}
+
+.kl-btn-secondary:hover {
+    background-color: var(--surface-bright);
+}
+
+.kl-btn-danger {
+    background-color: transparent;
+    color: var(--tertiary);
+    border: 1px solid rgba(255, 179, 172, 0.3);
+}
+
+.kl-btn-danger:hover {
+    background-color: rgba(255, 179, 172, 0.1);
+}
+
+.kl-btn:disabled {
+    color: var(--on-surface-variant);
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   11. NAVIGATION — Top Bar + Side Bar
+   ═══════════════════════════════════════════════════════════════ */
+
+/* Top Navigation Bar */
+.kl-topnav {
+    background-color: #171717;
+    border-bottom: 1px solid rgba(61, 73, 71, 0.2);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0 1.5rem;
+    height: 3.5rem;
+    flex-shrink: 0;
+}
+
+.kl-topnav-brand {
+    font-family: var(--font-headline);
+    font-size: 1.1rem;
+    font-weight: 900;
+    letter-spacing: -0.05em;
+    color: var(--primary);
+}
+
+.kl-topnav-links {
+    display: flex;
+    align-items: center;
+    gap: 1.5rem;
+    height: 100%;
+}
+
+.kl-topnav-link {
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    color: var(--on-surface-variant);
+    text-decoration: none;
+    padding: 0 0.5rem;
+    transition: color 0.2s ease;
+    height: 100%;
+    display: flex;
+    align-items: center;
+}
+
+.kl-topnav-link:hover {
+    color: var(--on-surface);
+    background-color: rgba(42, 42, 42, 0.5);
+}
+
+.kl-topnav-link.active {
+    color: var(--primary);
+    border-bottom: 2px solid var(--primary);
+}
+
+/* Side Navigation */
+.kl-sidenav {
+    background-color: var(--surface-lowest);
+    border-right: 1px solid rgba(61, 73, 71, 0.2);
+    width: 16rem;
+    display: flex;
+    flex-direction: column;
+    padding: 1rem 0;
+}
+
+.kl-sidenav-header {
+    padding: 0 1.5rem 2rem;
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.kl-sidenav-icon {
+    width: 2rem;
+    height: 2rem;
+    border-radius: var(--radius-lg);
+    background-color: var(--surface-container);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid rgba(61, 73, 71, 0.3);
+    color: var(--primary);
+}
+
+.kl-sidenav-link {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.5rem 0.75rem;
+    margin: 0 0.75rem 0.125rem;
+    border-radius: var(--radius-lg);
+    font-family: var(--font-body);
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: #737373;
+    text-decoration: none;
+    transition: all 0.2s ease;
+    border-left: 4px solid transparent;
+}
+
+.kl-sidenav-link:hover {
+    background-color: #171717;
+    color: var(--on-surface);
+}
+
+.kl-sidenav-link.active {
+    background-color: #262626;
+    color: var(--primary);
+    border-left-color: var(--primary);
+    border-radius: 0 var(--radius-lg) var(--radius-lg) 0;
+}
+
+/* Material Symbols Icon sizing */
+.kl-sidenav-link .material-symbols-outlined {
+    font-size: 1.25rem;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   12. PAGE HEADER
+   ═══════════════════════════════════════════════════════════════ */
+.kl-page-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+    margin-bottom: 1.5rem;
+}
+
+.kl-page-title {
+    font-family: var(--font-headline);
+    font-size: 2rem;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    color: var(--on-surface);
+    line-height: 1;
+    margin: 0;
+}
+
+.kl-page-subtitle {
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    color: var(--on-surface-variant);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-top: 0.5rem;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   13. SECTION HEADERS (inside cards)
+   ═══════════════════════════════════════════════════════════════ */
+.kl-section-header {
+    background-color: var(--surface-container-high);
+    padding: 0.75rem 1rem;
+    border-bottom: 1px solid rgba(61, 73, 71, 0.2);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.kl-section-title {
+    font-family: var(--font-mono);
+    font-size: 0.6875rem;
+    font-weight: 400;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--on-surface-variant);
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   14. BADGE / TAG
+   ═══════════════════════════════════════════════════════════════ */
+.kl-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.125rem 0.375rem;
+    border-radius: var(--radius-default);
+    font-family: var(--font-mono);
+    font-size: 0.625rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+}
+
+.kl-badge-buy {
+    background-color: rgba(136, 217, 130, 0.1);
+    color: var(--secondary);
+    border: 1px solid rgba(136, 217, 130, 0.2);
+}
+
+.kl-badge-sell {
+    background-color: rgba(255, 179, 172, 0.1);
+    color: var(--tertiary);
+    border: 1px solid rgba(255, 179, 172, 0.2);
+}
+
+.kl-badge-neutral {
+    background-color: var(--surface-variant);
+    color: var(--on-surface-variant);
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   15. PROGRESS BAR
+   ═══════════════════════════════════════════════════════════════ */
+.kl-progress {
+    width: 100%;
+    height: 4px;
+    background-color: var(--surface-container-highest);
+    border-radius: 2px;
+    overflow: hidden;
+}
+
+.kl-progress-fill {
+    height: 100%;
+    border-radius: 2px;
+    transition: width 0.3s ease;
+}
+
+.kl-progress-fill.profit  { background-color: var(--secondary); }
+.kl-progress-fill.loss    { background-color: var(--tertiary); }
+.kl-progress-fill.primary { background-color: var(--primary); }
+.kl-progress-fill.neutral { background-color: var(--outline); }
+
+/* ═══════════════════════════════════════════════════════════════
+   16. GAUGE (Radial)
+   ═══════════════════════════════════════════════════════════════ */
+.kl-gauge-container {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.kl-gauge-label {
+    position: absolute;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+}
+
+.kl-gauge-value {
+    font-family: var(--font-mono);
+    font-size: 2.5rem;
+    font-weight: 700;
+    letter-spacing: -0.03em;
+}
+
+.kl-gauge-sublabel {
+    font-family: var(--font-label);
+    font-size: 0.625rem;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    margin-top: 0.25rem;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   17. TERMINAL LOG (Surface Well)
+   ═══════════════════════════════════════════════════════════════ */
+.kl-terminal {
+    background-color: var(--surface-lowest);
+    border: 1px solid rgba(61, 73, 71, 0.1);
+    border-left: 2px solid var(--primary);
+    border-radius: var(--radius-lg);
+    padding: 0.75rem;
+    font-family: var(--font-mono);
+    font-size: 0.6875rem;
+    line-height: 1.8;
+    color: var(--on-surface-variant);
+    max-height: 180px;
+    overflow-y: auto;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   18. SCROLLBAR
+   ═══════════════════════════════════════════════════════════════ */
+::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
+
+::-webkit-scrollbar-track {
+    background: var(--background);
+}
+
+::-webkit-scrollbar-thumb {
+    background: var(--outline-variant);
+    border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: var(--outline);
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   19. CHART GRIDLINES
+   ═══════════════════════════════════════════════════════════════ */
+.kl-chart-container {
+    position: relative;
+    border-left: 1px solid rgba(61, 73, 71, 0.2);
+    border-bottom: 1px solid rgba(61, 73, 71, 0.2);
+}
+
+.kl-gridline {
+    position: absolute;
+    width: 100%;
+    height: 1px;
+    background-color: rgba(61, 73, 71, 0.1);
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   20. UTILITY CLASSES
+   ═══════════════════════════════════════════════════════════════ */
+.kl-text-primary   { color: var(--primary) !important; }
+.kl-text-secondary { color: var(--secondary) !important; }
+.kl-text-tertiary  { color: var(--tertiary) !important; }
+.kl-text-muted     { color: var(--on-surface-variant) !important; }
+.kl-text-surface   { color: var(--on-surface) !important; }
+.kl-text-outline   { color: var(--outline) !important; }
+
+.kl-bg-lowest      { background-color: var(--surface-lowest) !important; }
+.kl-bg-low         { background-color: var(--surface-container-low) !important; }
+.kl-bg-container   { background-color: var(--surface-container) !important; }
+.kl-bg-high        { background-color: var(--surface-container-high) !important; }
+.kl-bg-highest     { background-color: var(--surface-container-highest) !important; }
+
+/* Material Symbols font integration */
+.material-symbols-outlined {
+    font-family: 'Material Symbols Outlined';
+    font-weight: normal;
+    font-style: normal;
+    font-size: 1.25rem;
+    line-height: 1;
+    letter-spacing: normal;
+    text-transform: none;
+    display: inline-block;
+    white-space: nowrap;
+    word-wrap: normal;
+    direction: ltr;
+    -webkit-font-feature-settings: 'liga';
+    font-feature-settings: 'liga';
+    -webkit-font-smoothing: antialiased;
+    font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+}

@@ -47,6 +47,7 @@
   },
   "signals": {
     "signal_cooldown_hours": 6,
+    "reentry_cooldown_days": 3,
     "send_status_report_if_no_alerts": true,
     "ignore_downtrend_days": 3,
     "price_peak_lookback_days": 90,
@@ -99,6 +100,12 @@
     "spreadsheet_id": "YOUR_SPREADSHEET_ID_HERE",
     "credentials_file": "service_account.json"
   },
+  "corporate_actions": {
+    "split_detection_threshold": 0.40,
+    "split_volume_threshold": 2.0,
+    "max_price_gap_pct": 0.15,
+    "enable_auto_adjust": true
+  },
   "execution": {
     "auto_trade_threshold": 6.5,
     "alert_only_threshold": 4.5,
@@ -132,6 +139,19 @@
     "rsi_phase": 0.20,
     "volatility": 0.15,
     "macro": 0.05
+  },
+  "dark_pool": {
+    "volume_ratio_threshold": 2.5,
+    "max_price_change_pct": 0.5,
+    "volume_lookback_days": 20
+  },
+  "notifications": {
+    "telegram_rate_limit_per_second": 30,
+    "telegram_rate_limit_per_minute": 20,
+    "telegram_batch_interval_seconds": 2,
+    "telegram_batch_max_size": 5,
+    "monte_carlo_cache_ttl_seconds": 300,
+    "monte_carlo_cache_max_entries": 50
   },
   "commercial": {
     "license_key": "SVGN-PRO-V15-COMM-2026",

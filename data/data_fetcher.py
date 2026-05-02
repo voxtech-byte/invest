@@ -6,6 +6,7 @@ import os
 import time
 from typing import Any, Dict, Optional, Union
 from logger import get_logger
+from core.corporate_actions import apply_corporate_actions_filter
 
 logger = get_logger(__name__)
 
@@ -135,6 +136,9 @@ def fetch_data(symbol: str, config: dict[str, Any]) -> Optional[pd.DataFrame]:
     # Suspend/delist check
     if _is_suspended(df, symbol):
         return None
+    
+    # Corporate actions detection and adjustment (splits, etc.)
+    df = apply_corporate_actions_filter(df, symbol, config)
 
     logger.info(f"[{symbol}] Data successfully fetched via {source} ({len(df)} rows)")
     try:
